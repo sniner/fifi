@@ -72,9 +72,11 @@ pub struct Cli {
 
     /// Full-content hash algorithm
     ///
-    /// Only `xxh3` is implemented in this release. `sha256` and `bytewise`
-    /// are reserved for future versions and currently exit with "not yet
-    /// implemented".
+    /// `xxh3` (default) — non-cryptographic, runs at memory bandwidth.
+    /// `sha256` — cryptographic, slower but with audit-trail value.
+    /// `bytewise` — no hashing; files are compared pairwise byte-for-byte.
+    /// The partial-hash pass (head + tail of files ≥ 64 KiB) is always
+    /// xxh3 regardless of this setting; only the full pass is configurable.
     #[arg(long, value_enum, default_value_t = AlgoArg::Xxh3)]
     pub algo: AlgoArg,
 

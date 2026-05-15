@@ -2,6 +2,31 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com).
 
+## [0.2.0] — 2026-05-15
+
+Both placeholder full-hash strategies from 0.1.0 are now implemented:
+`--algo sha256` for cryptographic guarantees, `--algo bytewise` for
+literal byte-for-byte comparison. The pipeline architecture didn't have
+to change — these slot into the existing `FullHashStrategy` dispatch.
+
+### Added
+
+- **`--algo sha256`** now actually computes SHA-256 over the file content
+  (was previously a placeholder that errored with "not yet implemented").
+  Use it when you want cryptographic collision resistance for audit
+  trails or in regulated environments where xxh3 is hard to justify.
+- **`--algo bytewise`** compares files pairwise byte-for-byte instead of
+  hashing. Slowest of the three options, but a literal rather than
+  probabilistic guarantee: if fifi says two files are identical under
+  `--algo bytewise`, every byte was compared and matched. Intended for
+  paranoia-grade verification.
+
+### Changed
+
+- Error messages no longer carry the redundant `scan failed:` prefix.
+  The underlying `ScanError` variants already self-describe (e.g.
+  "I/O error on /path: ..." or "hash algorithm not yet implemented: X").
+
 ## [0.1.0] — 2026-05-15
 
 Initial release. `fifi` is a Rust reimplementation of the Python `duplicates`

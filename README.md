@@ -10,8 +10,12 @@ Plenty of duplicate finders exist (`fdupes`, `jdupes`, `rdfind` and others)
 and they all work. `fifi` came out of wanting a handful of specific things
 together:
 
-- **xxh3-128** for hashing — duplicate detection doesn't need collision
-  resistance against an adversary, and xxh3 runs at memory bandwidth.
+- **xxh3-128** for hashing by default — duplicate detection doesn't need
+  collision resistance against an adversary, and xxh3 runs at memory
+  bandwidth. `--algo sha256` is available if you want cryptographic
+  guarantees (audit logs, regulated environments); `--algo bytewise`
+  skips hashing entirely and compares files pairwise byte-for-byte
+  (slowest, but a literal rather than probabilistic guarantee).
 - **Parallel hashing** via rayon — large filesystems use all your cores.
 - **A clear semantic split** between *"where am I wasting disk space?"* and
   *"which directory entries hold the same content?"*. The default answers
@@ -148,12 +152,14 @@ as a standalone file.
   in next to hardlink dedup.
 - **gitignore-style excludes** — `--exclude-from` with proper glob support.
 - **Progress bars** via indicatif when stdout is a terminal.
-- **`bytewise` strategy** — pairwise byte comparison, no hashing, for the
-  truly paranoid (slow, but no collision risk).
-- **`sha256` and other hash implementations** — already routed through the
-  CLI, just need wiring.
 
 ## Installation
+
+### From crates.io
+
+```
+cargo install fifi
+```
 
 ### From source
 
