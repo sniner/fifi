@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::{self, Read};
+use std::path::Path;
 
 use rayon::prelude::*;
 
@@ -6,6 +9,8 @@ use crate::error::{Result, ScanError};
 use crate::hash::{
     DigestHasher, DigestKey, FullHashStrategy, PARTIAL_THRESHOLD, hex, partial_xxh3,
 };
+
+const BYTEWISE_BLOCK: usize = 1 << 20;
 use crate::model::{DuplicateGroup, FileEntry, ScanResult};
 use crate::progress::ProgressSink;
 use crate::scanner::ScanOptions;
@@ -124,6 +129,89 @@ fn bucket_one_group_full(
     out
 }
 
+/// Compare two files byte-by-byte. Returns `Ok(true)` if every byte
+/// matches (and both files end together), `Ok(false)` on first
+/// mismatch or differing lengths. Lengths typically match — the caller
+/// has already size-grouped — but we defend against the TOCTOU window
+/// where a file was truncated between stat and open.
+fn files_equal(a: &Path, b: &Path) -> io::Result<bool> {
+    let mut fa = File::open(a)?;
+    let mut fb = File::open(b)?;
+    let mut buf_a = vec![0u8; BYTEWISE_BLOCK];
+    let mut buf_b = vec![0u8; BYTEWISE_BLOCK];
+    loop {
+        let na = fa.read(&mut buf_a)?;
+        let nb = fb.read(&mut buf_b)?;
+        if na != nb {
+            return Ok(false);
+        }
+        if na == 0 {
+            return Ok(true);
+        }
+        if buf_a[..na] != buf_b[..nb] {
+            return Ok(false);
+        }
+    }
+}
+
+fn bucket_one_group_bytewise(
+    group: Vec<FileEntry>,
+    progress: Option<&dyn ProgressSink>,
+) -> BucketedGroup {
+    let mut out = BucketedGroup::new();
+    if group.is_empty() {
+        return out;
+    }
+    // For each candidate entry, try to place it into an existing subgroup
+    // whose first member's content matches byte-for-byte. If no match,
+    // start a new subgroup. The typical case after partial-xxh3 is "all
+    // identical", so most entries land in the first subgroup with one
+    // comparison each (O(N) reads, O(N) comparisons).
+    let mut subgroups: Vec<Vec<FileEntry>> = Vec::new();
+    for entry in group {
+        if let Some(p) = progress {
+            p.tick(&format!(
+                "Bytewise-comparing {} ({})",
+                entry.path.display(),
+                human_size(entry.size)
+            ));
+        }
+        let mut handled = false;
+        for sub in subgroups.iter_mut() {
+            match files_equal(&entry.path, &sub[0].path) {
+                Ok(true) => {
+                    sub.push(entry.clone());
+                    handled = true;
+                    break;
+                }
+                Ok(false) => continue,
+                Err(e) => {
+                    tracing::error!(
+                        "Unable to compare '{}' vs '{}': {}",
+                        entry.path.display(),
+                        sub[0].path.display(),
+                        e
+                    );
+                    out.unreadable.push(entry.clone());
+                    handled = true;
+                    break;
+                }
+            }
+        }
+        if !handled {
+            subgroups.push(vec![entry]);
+        }
+    }
+    for sub in subgroups {
+        if sub.len() == 1 {
+            out.singletons.extend(sub);
+        } else {
+            out.multi.push(sub);
+        }
+    }
+    out
+}
+
 fn merge(buckets: Vec<BucketedGroup>) -> BucketedGroup {
     let mut acc = BucketedGroup::new();
     for b in buckets {
@@ -172,20 +260,25 @@ pub fn run_pipeline(files: Vec<FileEntry>, opts: &ScanOptions) -> Result<ScanRes
         tracing::info!("Full-hashing {} file(s)...", full_count);
     }
 
-    let hasher: &dyn DigestHasher = match &opts.algo {
+    let full_buckets: Vec<BucketedGroup> = match &opts.algo {
         FullHashStrategy::Digest(d) if !d.available() => {
             return Err(ScanError::UnsupportedAlgo(d.name()));
         }
-        FullHashStrategy::Digest(d) => d.as_ref(),
-        FullHashStrategy::Bytewise => return Err(ScanError::UnsupportedAlgo("bytewise")),
+        FullHashStrategy::Digest(d) => {
+            let hasher = d.as_ref();
+            partial
+                .multi
+                .into_par_iter()
+                .map(|g| bucket_one_group_full(g, hasher, progress))
+                .collect()
+        }
+        FullHashStrategy::Bytewise => partial
+            .multi
+            .into_par_iter()
+            .map(|g| bucket_one_group_bytewise(g, progress))
+            .collect(),
     };
-
-    let full: Vec<BucketedGroup> = partial
-        .multi
-        .into_par_iter()
-        .map(|g| bucket_one_group_full(g, hasher, progress))
-        .collect();
-    let full = merge(full);
+    let full = merge(full_buckets);
     unique.extend(full.singletons);
     unreadable.extend(full.unreadable);
 
@@ -258,5 +351,71 @@ mod tests {
         assert_eq!(out.multi[0].len(), 2);
         assert!(out.singletons.is_empty());
         assert!(out.unreadable.is_empty());
+    }
+
+    fn make_real_entry(path: PathBuf, size: u64) -> FileEntry {
+        FileEntry {
+            path,
+            aliases: Vec::new(),
+            size,
+            age: 0.0,
+            hash: None,
+            dev: 0,
+            ino: 0,
+        }
+    }
+
+    #[test]
+    fn bytewise_groups_identical_files() {
+        let td = tempfile::TempDir::new().unwrap();
+        let p1 = td.path().join("a");
+        let p2 = td.path().join("b");
+        let p3 = td.path().join("c");
+        std::fs::write(&p1, b"identical content").unwrap();
+        std::fs::write(&p2, b"identical content").unwrap();
+        std::fs::write(&p3, b"identical content").unwrap();
+        let g = vec![
+            make_real_entry(p1, 17),
+            make_real_entry(p2, 17),
+            make_real_entry(p3, 17),
+        ];
+        let out = bucket_one_group_bytewise(g, None);
+        assert_eq!(out.multi.len(), 1);
+        assert_eq!(out.multi[0].len(), 3);
+        assert!(out.singletons.is_empty());
+        assert!(out.unreadable.is_empty());
+    }
+
+    #[test]
+    fn bytewise_separates_distinct_content() {
+        // Same size, different content — should end up as two singletons.
+        let td = tempfile::TempDir::new().unwrap();
+        let p1 = td.path().join("a");
+        let p2 = td.path().join("b");
+        std::fs::write(&p1, b"AAAAAA").unwrap();
+        std::fs::write(&p2, b"BBBBBB").unwrap();
+        let g = vec![make_real_entry(p1, 6), make_real_entry(p2, 6)];
+        let out = bucket_one_group_bytewise(g, None);
+        assert!(out.multi.is_empty());
+        assert_eq!(out.singletons.len(), 2);
+    }
+
+    #[test]
+    fn bytewise_separates_partial_collision() {
+        // Same size, same first byte, same last byte (the partial-hash
+        // window), but a different middle byte — must be detected as
+        // distinct in the full pass.
+        let td = tempfile::TempDir::new().unwrap();
+        let p1 = td.path().join("a");
+        let p2 = td.path().join("b");
+        let mut buf = vec![0u8; 100];
+        buf[50] = 1;
+        std::fs::write(&p1, &buf).unwrap();
+        buf[50] = 2;
+        std::fs::write(&p2, &buf).unwrap();
+        let g = vec![make_real_entry(p1, 100), make_real_entry(p2, 100)];
+        let out = bucket_one_group_bytewise(g, None);
+        assert_eq!(out.singletons.len(), 2);
+        assert!(out.multi.is_empty());
     }
 }

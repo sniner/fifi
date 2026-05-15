@@ -127,21 +127,25 @@ fn algo_sha256_finds_duplicates() {
 }
 
 #[test]
-fn unsupported_algo_errors_cleanly() {
+fn algo_bytewise_finds_duplicates() {
     let td = TempDir::new().unwrap();
     let root = td.path();
     mkfile(root, "a.txt", b"shared");
     mkfile(root, "b.txt", b"shared");
+    mkfile(root, "different.txt", b"unique");
 
-    // bytewise is still architecture-only at this point; the next commit
-    // wires it up, and this test gets replaced with a positive one.
-    fifi()
-        .args(["--algo", "bytewise"])
+    let out = fifi()
+        .args(["--algo", "bytewise", "--json"])
         .arg(root)
         .assert()
-        .failure()
-        .code(2)
-        .stderr(predicate::str::contains("not yet implemented"));
+        .success();
+    let json: serde_json::Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
+    let dups = json.get("duplicates").unwrap().as_array().unwrap();
+    assert_eq!(dups.len(), 1);
+    let files = dups[0].get("files").unwrap().as_array().unwrap();
+    assert_eq!(files.len(), 2);
+    // bytewise does not compute a digest, so the hash field is null.
+    assert!(dups[0].get("hash").unwrap().is_null());
 }
 
 #[test]
