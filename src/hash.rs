@@ -48,19 +48,23 @@ impl DigestHasher for Xxh3Hasher {
 pub struct Sha256Hasher;
 
 impl DigestHasher for Sha256Hasher {
-    fn digest(&self, _path: &Path) -> io::Result<DigestKey> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "sha256 hashing is not implemented in this version",
-        ))
+    fn digest(&self, path: &Path) -> io::Result<DigestKey> {
+        use sha2::{Digest, Sha256};
+        let mut file = File::open(path)?;
+        let mut hasher = Sha256::new();
+        let mut buf = vec![0u8; BLOCK_SIZE];
+        loop {
+            let n = file.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+        }
+        Ok(hasher.finalize().to_vec())
     }
 
     fn name(&self) -> &'static str {
         "sha256"
-    }
-
-    fn available(&self) -> bool {
-        false
     }
 }
 
@@ -144,10 +148,28 @@ mod tests {
     }
 
     #[test]
-    fn sha256_returns_unsupported() {
-        let f = write_temp(b"x");
-        let err = Sha256Hasher.digest(f.path()).unwrap_err();
-        assert_eq!(err.kind(), io::ErrorKind::Unsupported);
+    fn sha256_digest_is_deterministic_and_well_known() {
+        // SHA-256("hello world") = b94d27b9934d3e08a52e52d7da7dabfa...
+        let f = write_temp(b"hello world");
+        let h = Sha256Hasher.digest(f.path()).unwrap();
+        assert_eq!(h.len(), 32);
+        assert_eq!(
+            hex(&h),
+            "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+        );
+        // Re-run gives same result.
+        let h2 = Sha256Hasher.digest(f.path()).unwrap();
+        assert_eq!(h, h2);
+    }
+
+    #[test]
+    fn sha256_distinguishes_content() {
+        let a = write_temp(b"hello");
+        let b = write_temp(b"hellp");
+        assert_ne!(
+            Sha256Hasher.digest(a.path()).unwrap(),
+            Sha256Hasher.digest(b.path()).unwrap()
+        );
     }
 
     #[test]

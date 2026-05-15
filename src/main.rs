@@ -3,7 +3,6 @@ use std::process;
 use std::sync::Arc;
 use std::time::Instant;
 
-use anyhow::Context;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
@@ -84,7 +83,7 @@ fn run(cli: &Cli, mode: OutputMode) -> anyhow::Result<bool> {
     }
 
     let started = Instant::now();
-    let result = scan(&cli.path, &opts).context("scan failed")?;
+    let result = scan(&cli.path, &opts)?;
     let elapsed = started.elapsed().as_secs_f64();
 
     let stdout = io::stdout();

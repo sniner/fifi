@@ -105,14 +105,38 @@ fn json_includes_unique_only_when_flagged() {
 }
 
 #[test]
+fn algo_sha256_finds_duplicates() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    mkfile(root, "a.txt", b"shared");
+    mkfile(root, "b.txt", b"shared");
+
+    let out = fifi()
+        .args(["--algo", "sha256", "--json"])
+        .arg(root)
+        .assert()
+        .success();
+    let json: serde_json::Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
+    let dups = json.get("duplicates").unwrap().as_array().unwrap();
+    assert_eq!(dups.len(), 1);
+    let hash = dups[0].get("hash").unwrap().as_str().unwrap();
+    assert!(
+        hash.starts_with("sha256:"),
+        "expected sha256: prefix, got {hash}"
+    );
+}
+
+#[test]
 fn unsupported_algo_errors_cleanly() {
     let td = TempDir::new().unwrap();
     let root = td.path();
     mkfile(root, "a.txt", b"shared");
     mkfile(root, "b.txt", b"shared");
 
+    // bytewise is still architecture-only at this point; the next commit
+    // wires it up, and this test gets replaced with a positive one.
     fifi()
-        .args(["--algo", "sha256"])
+        .args(["--algo", "bytewise"])
         .arg(root)
         .assert()
         .failure()
