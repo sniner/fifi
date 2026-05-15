@@ -19,8 +19,7 @@ together:
 - **Parallel hashing** via rayon — large filesystems use all your cores.
 - **A clear semantic split** between *"where am I wasting disk space?"* and
   *"which directory entries hold the same content?"*. The default answers
-  the first: files that share storage (today hardlinks; in a future release
-  also Btrfs/XFS reflinks) collapse into one entry with the other paths as
+  the first: hardlinks collapse into one entry with the other paths as
   aliases. Pass `--per-path` to answer the second instead.
 - **Tree-style text output** that's easy to skim, with hardlink aliases
   rendered alongside their canonical entry rather than as a separate copy.
@@ -100,17 +99,16 @@ Three phases:
 3. **Full hash** for whatever the partial pass couldn't separate. Uses the
    algorithm chosen via `--algo`.
 
-Files that share storage on disk — today hardlinks (same `(dev, ino)`),
-in a future release also Btrfs/XFS reflinks (same physical extents) — are
-collapsed into a single entry before phase 1. Identical inodes are never
-re-hashed and never counted as separate files. This is the right answer to
-the **"where am I wasting disk space?"** question.
+Hardlinks (files sharing the same `(dev, ino)`) are collapsed into a
+single entry before phase 1. Identical inodes are never re-hashed and
+never counted as separate files. This is the right answer to the
+**"where am I wasting disk space?"** question.
 
 If you want the **"which directory entries hold the same content?"**
 question instead — for example because you want to find every path that
 points to the same data, regardless of whether it occupies extra space —
 pass `--per-path`. Each path on disk then becomes a standalone entry, and
-hardlinks/reflinks are listed alongside true content copies.
+hardlinks are listed alongside true content copies.
 
 The "original" within a duplicate group is the oldest file, breaking ties
 by fewer path components, then shorter path string, then lexicographic
@@ -147,9 +145,6 @@ as a standalone file.
 
 ## Roadmap
 
-- **Btrfs/XFS reflink awareness** — files that share extents on a CoW
-  filesystem aren't really duplicates. Detecting this via FIEMAP would slot
-  in next to hardlink dedup.
 - **gitignore-style excludes** — `--exclude-from` with proper glob support.
 - **Progress bars** via indicatif when stdout is a terminal.
 

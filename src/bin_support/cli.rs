@@ -59,14 +59,13 @@ pub struct Cli {
     #[arg(long)]
     pub unique: bool,
 
-    /// Count one entry per path; don't merge files that share storage
+    /// Count one entry per path; don't merge hardlink families
     ///
-    /// Without this flag, files that share storage (today hardlinks; in a
-    /// future release also reflinks) collapse into one canonical entry
-    /// with the other paths as aliases — useful for the "where am I
-    /// wasting space?" question. With `--per-path`, every path on disk is
-    /// a standalone entry — useful for the "which directory entries hold
-    /// the same content?" question.
+    /// Without this flag, hardlinks (files sharing dev+ino) collapse into
+    /// one canonical entry with the other paths as aliases — useful for
+    /// the "where am I wasting disk space?" question. With `--per-path`,
+    /// every path on disk is a standalone entry — useful for the "which
+    /// directory entries hold the same content?" question.
     #[arg(long = "per-path")]
     pub per_path: bool,
 

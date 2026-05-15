@@ -46,9 +46,9 @@ output, and a pluggable hash strategy that's ready to grow.
 - **Parallel hashing** via rayon. Both partial and full hash phases process
   candidate groups in parallel.
 - **Storage-aware deduplication** — files sharing `(dev, inode)` (i.e.
-  hardlinks; reflinks will follow in a later release) collapse into one
-  canonical entry with the other paths exposed as `aliases`. This answers
-  the *"where am I wasting disk space?"* question accurately. Statistics
+  hardlinks) collapse into one canonical entry with the other paths
+  exposed as `aliases`. This answers the *"where am I wasting disk
+  space?"* question accurately. Statistics
   (`total_files`, `total_bytes`, `duplicate_copies`, `duplicate_bytes`, ...)
   count storage units (one per inode), not directory paths — `duplicate_bytes`
   is the actually reclaimable amount of disk space.
