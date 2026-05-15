@@ -2,7 +2,7 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com).
 
-## [0.1.0] — unreleased
+## [0.1.0] — 2026-05-15
 
 Initial release. `fifi` is a Rust reimplementation of the Python `duplicates`
 tool with parallel hashing, storage-aware deduplication, tree-style text
