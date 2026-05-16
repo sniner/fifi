@@ -2,7 +2,12 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com).
 
-## [Unreleased]
+## [0.3.0] — 2026-05-16
+
+Adds a depth limit for directory descent. `--depth 0` matches the
+no-recursion case some tools spell as the absence of `-r`; `--depth N`
+allows N levels of subdirectory descent; omitted, the scan remains
+unbounded as before.
 
 ### Added
 
