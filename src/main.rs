@@ -6,13 +6,11 @@ use std::time::Instant;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
-mod bin_support;
+mod cli;
 
-use bin_support::cli::{Cli, OutputMode};
-use bin_support::output::{StatsSnapshot, emit_json, emit_json_error, emit_json_summary};
-use bin_support::render::{
-    RenderOptions, collect_summary, render_dupes_only, render_text, summary_line,
-};
+use cli::args::{Cli, OutputMode};
+use cli::output::{StatsSnapshot, emit_json, emit_json_error, emit_json_summary};
+use cli::render::{RenderOptions, collect_summary, render_dupes_only, render_text, summary_line};
 
 use fifi::{ScanOptions, TracingProgress, scan};
 
