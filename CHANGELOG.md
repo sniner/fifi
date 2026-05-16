@@ -4,6 +4,30 @@ Format based on [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+### Added
+
+- **`--exclude PATTERN`** and **`--include PATTERN`** filter paths
+  during the directory walk. The pattern syntax mixes gitignore-style
+  ergonomics with explicit anchoring:
+  - **No `/`** in the pattern → basename match at any depth
+    (`*.log` excludes every `.log` file anywhere).
+  - **`/`** in the pattern → anchored to the scan root, matched
+    against the full relative path. `*` and `?` never cross `/`;
+    write `**` for explicit recursion.
+  - **Trailing `/`** opts into directory-only. For excludes this
+    prunes the subtree from the walk.
+  - A directory-only **include** rescues every file inside that
+    directory from a prior broad exclude, unless a later more
+    specific rule overrides.
+  - If the first filter flag is `--include`, an implicit
+    `--exclude '*'` is prepended so that `fifi --include '*.mkv'`
+    narrows the scan to mkv files (otherwise the lone include
+    would be a no-op against the default-include semantics).
+
+  Both flags are repeatable, and order on the command line matters
+  (rules are evaluated sequentially, last match wins). fifi does not
+  read `.gitignore` files; this is a self-contained filter syntax.
+
 ### Changed
 
 - **Text output** now renders each duplicate group as a two-level tree. The

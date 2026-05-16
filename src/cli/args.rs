@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
-use clap::{ArgAction, ArgGroup, Parser, ValueEnum};
+use clap::{ArgAction, ArgGroup, ArgMatches, Parser, ValueEnum};
 
-use fifi::FullHashStrategy;
+use fifi::{FilterChain, FilterParseError, FilterRule, FullHashStrategy, RuleKind};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 #[clap(rename_all = "lowercase")]
@@ -62,6 +62,29 @@ pub struct Cli {
     /// Omitted means unbounded.
     #[arg(long, value_name = "N")]
     pub depth: Option<usize>,
+
+    /// Exclude paths matching the given glob (repeatable)
+    ///
+    /// Patterns without `/` match against the basename at any depth
+    /// (`*.log` excludes every log file in the tree). Patterns with `/`
+    /// are anchored to the scan root (`src/*.log` only at the top-level
+    /// `src/`). A trailing `/` makes a pattern directory-only and
+    /// prunes descent. Combine with `--include`; later flags override
+    /// earlier ones, so order on the command line is significant.
+    #[arg(long = "exclude", action = ArgAction::Append, value_name = "PATTERN")]
+    pub exclude: Vec<String>,
+
+    /// Include paths matching the given glob (repeatable)
+    ///
+    /// Same pattern syntax as `--exclude`. If `--include` is the first
+    /// filter flag on the command line, an implicit `--exclude '*'` is
+    /// prepended so that `fifi --include '*.mkv' /path` narrows the
+    /// scan to mkv files (rather than being a no-op against the default
+    /// of including everything). A directory-only include also rescues
+    /// every file inside that directory from a prior broad exclude,
+    /// unless a later more-specific rule overrides it.
+    #[arg(long = "include", action = ArgAction::Append, value_name = "PATTERN")]
+    pub include: Vec<String>,
 
     /// Also include unique files in the output.
     #[arg(long)]
@@ -129,5 +152,120 @@ impl Cli {
             (false, false, true) => OutputMode::Summary,
             (false, false, false) => OutputMode::Text,
         }
+    }
+}
+
+/// Build the filter chain from raw clap matches, preserving the
+/// original argv order between `--include` and `--exclude` flags.
+///
+/// `Vec<String>` on the derive struct gives us the *values* in order
+/// per flag, but loses the interleaving between the two flag types.
+/// We recover that by asking `ArgMatches` for each value's original
+/// argv position, then merging both flag streams by index.
+///
+/// Convenience: if the first user-supplied rule is an `--include`, an
+/// implicit `--exclude '*'` is prepended. Without this, a lone include
+/// would be a no-op against fifi's default of including everything,
+/// and `fifi --include '*.mkv' /path` would happily return every file
+/// instead of just the mkv ones. Starting with an `--exclude` opts out
+/// of this convenience (the user has stated their intent explicitly).
+pub fn build_filter(matches: &ArgMatches) -> Result<FilterChain, FilterParseError> {
+    let mut entries: Vec<(usize, RuleKind, &str)> = Vec::new();
+    for (idx, val) in matches
+        .indices_of("exclude")
+        .into_iter()
+        .flatten()
+        .zip(matches.get_many::<String>("exclude").into_iter().flatten())
+    {
+        entries.push((idx, RuleKind::Exclude, val.as_str()));
+    }
+    for (idx, val) in matches
+        .indices_of("include")
+        .into_iter()
+        .flatten()
+        .zip(matches.get_many::<String>("include").into_iter().flatten())
+    {
+        entries.push((idx, RuleKind::Include, val.as_str()));
+    }
+    entries.sort_by_key(|(idx, _, _)| *idx);
+
+    let mut chain = FilterChain::new();
+    if matches!(entries.first(), Some((_, RuleKind::Include, _))) {
+        chain.push(FilterRule::parse(RuleKind::Exclude, "*")?);
+    }
+    for (_, kind, pat) in entries {
+        chain.push(FilterRule::parse(kind, pat)?);
+    }
+    Ok(chain)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+    use fifi::Decision;
+    use std::path::Path;
+
+    fn build(args: &[&str]) -> FilterChain {
+        let argv = std::iter::once("fifi")
+            .chain(args.iter().copied())
+            .chain(std::iter::once("/dummy"));
+        let matches = Cli::command()
+            .try_get_matches_from(argv)
+            .expect("argv is well-formed");
+        build_filter(&matches).expect("patterns are valid")
+    }
+
+    fn included(d: Decision) -> bool {
+        matches!(d, Decision::Include)
+    }
+
+    #[test]
+    fn no_filter_args_produces_empty_chain() {
+        let c = build(&[]);
+        assert!(c.is_empty());
+    }
+
+    #[test]
+    fn lone_include_narrows_via_implicit_exclude() {
+        let c = build(&["--include", "*.mkv"]);
+        // The implicit `--exclude '*'` makes this narrow rather than
+        // be a no-op: only mkv files are kept, at any depth.
+        assert!(included(c.decide(Path::new("movie.mkv"), false)));
+        assert!(included(c.decide(Path::new("sub/movie.mkv"), false)));
+        assert!(!included(c.decide(Path::new("notes.txt"), false)));
+        assert!(!included(c.decide(Path::new("sub/notes.txt"), false)));
+    }
+
+    #[test]
+    fn lone_directory_include_rescues_subtree() {
+        let c = build(&["--include", "photos/"]);
+        assert!(included(c.decide(Path::new("photos/img.jpg"), false)));
+        assert!(included(c.decide(Path::new("photos/sub/img.jpg"), false)));
+        assert!(!included(c.decide(Path::new("other/img.jpg"), false)));
+    }
+
+    #[test]
+    fn leading_exclude_opts_out_of_implicit_convention() {
+        // First flag is `--exclude`, so the user's intent is "remove
+        // specific things, keep the rest". The later `--include` here
+        // is effectively a no-op against the default-include semantics,
+        // which is the same behavior as before this convenience landed.
+        let c = build(&["--exclude", "*.log", "--include", "*.mkv"]);
+        assert!(included(c.decide(Path::new("movie.mkv"), false)));
+        assert!(included(c.decide(Path::new("photo.jpg"), false)));
+        assert!(!included(c.decide(Path::new("app.log"), false)));
+    }
+
+    #[test]
+    fn include_first_then_exclude_combines() {
+        // `--include '*.mkv'` gives implicit `--exclude '*'`, then the
+        // explicit `--exclude 'sample.mkv'` removes one specific mkv.
+        let c = build(&["--include", "*.mkv", "--exclude", "sample.mkv"]);
+        assert!(included(c.decide(Path::new("movie.mkv"), false)));
+        assert!(included(c.decide(Path::new("sub/movie.mkv"), false)));
+        assert!(!included(c.decide(Path::new("sample.mkv"), false)));
+        assert!(!included(c.decide(Path::new("sub/sample.mkv"), false)));
+        assert!(!included(c.decide(Path::new("notes.txt"), false)));
     }
 }

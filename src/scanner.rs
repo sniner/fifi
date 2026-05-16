@@ -7,6 +7,7 @@ use std::time::UNIX_EPOCH;
 
 use walkdir::WalkDir;
 
+use crate::filter::{Decision, FilterChain};
 use crate::hash::FullHashStrategy;
 use crate::model::FileEntry;
 use crate::progress::ProgressSink;
@@ -22,6 +23,9 @@ pub struct ScanOptions {
     /// `Some(N)` allows N levels of subdirectory descent; `None` is
     /// unbounded.
     pub depth: Option<usize>,
+    /// Ordered list of include/exclude rules. Empty by default, in which
+    /// case every file the walk reaches is kept.
+    pub filter: FilterChain,
     pub algo: FullHashStrategy,
     pub progress: Option<Arc<dyn ProgressSink>>,
 }
@@ -34,6 +38,7 @@ impl ScanOptions {
             one_file_system: false,
             per_path: false,
             depth: None,
+            filter: FilterChain::new(),
             algo,
             progress: None,
         }
@@ -132,6 +137,22 @@ fn walk_path(
         if !opts.follow && de.file_type().is_symlink() {
             tracing::debug!("Ignoring symlink '{}'", de.path().display());
             return false;
+        }
+        if !opts.filter.is_empty() {
+            // Match against the path relative to the scan root so that
+            // patterns like `src/*.log` are anchored to the user-named
+            // directory, not the absolute filesystem path. strip_prefix
+            // can only fail if walkdir hands us a path outside the root,
+            // which it doesn't.
+            let rel = de.path().strip_prefix(root).unwrap_or(de.path());
+            let is_dir = de.file_type().is_dir();
+            if matches!(opts.filter.decide(rel, is_dir), Decision::Exclude) {
+                tracing::debug!(
+                    "Ignoring '{}' (filtered by include/exclude rules)",
+                    de.path().display()
+                );
+                return false;
+            }
         }
         true
     });
