@@ -76,6 +76,7 @@ fn run(cli: &Cli, mode: OutputMode) -> anyhow::Result<bool> {
     opts.include_hidden = cli.hidden;
     opts.one_file_system = cli.one_file_system;
     opts.per_path = cli.per_path;
+    opts.depth = cli.depth;
     if cli.verbose >= 1 {
         opts.progress = Some(Arc::new(TracingProgress::new()));
     }

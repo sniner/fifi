@@ -2,6 +2,16 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com).
 
+## [Unreleased]
+
+### Added
+
+- **`--depth N`** caps how far the scan descends below each named root.
+  `--depth 0` scans only the files directly in the named directories
+  (no recursion), `--depth 1` adds one level of subdirectories, and so
+  on. Omitted, the scan remains unbounded as before. A file passed
+  directly as a root is always included regardless of this setting.
+
 ## [0.2.0] — 2026-05-15
 
 Both placeholder full-hash strategies from 0.1.0 are now implemented:

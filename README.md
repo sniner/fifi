@@ -70,6 +70,7 @@ $ fifi --dupes-only /photos | tr '\0' '\n' | head
 | `--follow` | Follow symlinks (ignored by default) |
 | `--hidden` | Include hidden files and directories (ignored by default) |
 | `--one-file-system` | Do not enter mounted file systems |
+| `--depth N` | Limit subdirectory descent (`0` = no recursion, unbounded by default) |
 | `--unique` | Also include unique files in the output |
 | `--per-path` | Count one entry per path; don't merge files that share storage |
 | `--algo ALGO` | Full-hash algorithm: `xxh3` (default), `sha256`, `bytewise` |

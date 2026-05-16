@@ -17,6 +17,11 @@ pub struct ScanOptions {
     pub include_hidden: bool,
     pub one_file_system: bool,
     pub per_path: bool,
+    /// Maximum number of subdirectory levels to descend below each root.
+    /// `Some(0)` scans only the files directly in the named directories;
+    /// `Some(N)` allows N levels of subdirectory descent; `None` is
+    /// unbounded.
+    pub depth: Option<usize>,
     pub algo: FullHashStrategy,
     pub progress: Option<Arc<dyn ProgressSink>>,
 }
@@ -28,6 +33,7 @@ impl ScanOptions {
             include_hidden: false,
             one_file_system: false,
             per_path: false,
+            depth: None,
             algo,
             progress: None,
         }
@@ -72,87 +78,101 @@ fn is_hidden_name(name: &str) -> bool {
     name.starts_with('.')
 }
 
+fn walk_path(
+    root: &Path,
+    files: &mut Vec<FileEntry>,
+    progress: &Option<Arc<dyn ProgressSink>>,
+    opts: &ScanOptions,
+) {
+    // Follow symlinks at the root level (matches Python: tests is_dir/is_file
+    // on the root, both of which follow links). The --follow flag only
+    // changes behavior *inside* the walk.
+    let meta = match fs::metadata(root) {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::info!("'{}' not found: {}", root.display(), e);
+            return;
+        }
+    };
+
+    if meta.is_file() {
+        files.push(entry_from_metadata(root.to_path_buf(), &meta));
+        if let Some(p) = &progress {
+            p.tick(&format!("Scanned {} file(s) so far...", files.len()));
+        }
+        return;
+    }
+
+    if !meta.is_dir() {
+        tracing::debug!(
+            "Ignoring '{}' (not a regular file or directory)",
+            root.display()
+        );
+        return;
+    }
+
+    let mut walker = WalkDir::new(root)
+        .follow_links(opts.follow)
+        .same_file_system(opts.one_file_system);
+    if let Some(d) = opts.depth {
+        // walkdir treats the root as depth 0 and its direct children as
+        // depth 1, so a user-facing "0 subdirectory descents" maps to
+        // max_depth(1).
+        walker = walker.max_depth(d.saturating_add(1));
+    }
+    let walker = walker.into_iter().filter_entry(|de| {
+        if de.depth() == 0 {
+            return true;
+        }
+        let name = de.file_name().to_string_lossy();
+        if !opts.include_hidden && is_hidden_name(&name) {
+            tracing::debug!("Ignoring hidden '{}'", de.path().display());
+            return false;
+        }
+        if !opts.follow && de.file_type().is_symlink() {
+            tracing::debug!("Ignoring symlink '{}'", de.path().display());
+            return false;
+        }
+        true
+    });
+
+    for entry in walker {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                // walkdir surfaces loop detection (under follow_links) and
+                // permission errors here. Demote to debug so they don't
+                // interrupt scans.
+                tracing::debug!("walk error: {}", e);
+                continue;
+            }
+        };
+        let ft = entry.file_type();
+        if !ft.is_file() {
+            continue;
+        }
+        // metadata() follows symlinks; for follow_links(false) the symlink
+        // entries were already filtered above.
+        let m = match entry.metadata() {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::error!("Cannot stat '{}': {}", entry.path().display(), e);
+                continue;
+            }
+        };
+        files.push(entry_from_metadata(entry.path().to_path_buf(), &m));
+        if let Some(p) = &progress {
+            p.tick(&format!("Scanned {} file(s) so far...", files.len()));
+        }
+    }
+}
+
 pub fn walk_paths(roots: &[PathBuf], opts: &ScanOptions) -> Vec<FileEntry> {
     let mut files: Vec<FileEntry> = Vec::new();
     let progress = opts.progress.clone();
 
     for root in roots {
-        // Follow symlinks at the root level (matches Python: tests is_dir/is_file
-        // on the root, both of which follow links). The --follow flag only
-        // changes behavior *inside* the walk.
-        let meta = match fs::metadata(root) {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::info!("'{}' not found: {}", root.display(), e);
-                continue;
-            }
-        };
-
-        if meta.is_file() {
-            files.push(entry_from_metadata(root.clone(), &meta));
-            if let Some(p) = &progress {
-                p.tick(&format!("Scanned {} file(s) so far...", files.len()));
-            }
-            continue;
-        }
-
-        if !meta.is_dir() {
-            tracing::debug!(
-                "Ignoring '{}' (not a regular file or directory)",
-                root.display()
-            );
-            continue;
-        }
-
-        let walker = WalkDir::new(root)
-            .follow_links(opts.follow)
-            .same_file_system(opts.one_file_system)
-            .into_iter()
-            .filter_entry(|de| {
-                if de.depth() == 0 {
-                    return true;
-                }
-                let name = de.file_name().to_string_lossy();
-                if !opts.include_hidden && is_hidden_name(&name) {
-                    tracing::debug!("Ignoring hidden '{}'", de.path().display());
-                    return false;
-                }
-                if !opts.follow && de.file_type().is_symlink() {
-                    tracing::debug!("Ignoring symlink '{}'", de.path().display());
-                    return false;
-                }
-                true
-            });
-
-        for entry in walker {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(e) => {
-                    // walkdir surfaces loop detection (under follow_links) and
-                    // permission errors here. Demote to debug so they don't
-                    // interrupt scans.
-                    tracing::debug!("walk error: {}", e);
-                    continue;
-                }
-            };
-            let ft = entry.file_type();
-            if !ft.is_file() {
-                continue;
-            }
-            // metadata() follows symlinks; for follow_links(false) the symlink
-            // entries were already filtered above.
-            let m = match entry.metadata() {
-                Ok(m) => m,
-                Err(e) => {
-                    tracing::error!("Cannot stat '{}': {}", entry.path().display(), e);
-                    continue;
-                }
-            };
-            files.push(entry_from_metadata(entry.path().to_path_buf(), &m));
-            if let Some(p) = &progress {
-                p.tick(&format!("Scanned {} file(s) so far...", files.len()));
-            }
-        }
+        walk_path(root, &mut files, &progress, opts)
     }
 
     files

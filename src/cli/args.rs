@@ -55,6 +55,14 @@ pub struct Cli {
     #[arg(long = "one-file-system")]
     pub one_file_system: bool,
 
+    /// Limit subdirectory descent below each root
+    ///
+    /// `--depth 0` scans only the files directly in the named directories
+    /// (no recursion). `--depth N` allows N levels of subdirectory descent.
+    /// Omitted means unbounded.
+    #[arg(long, value_name = "N")]
+    pub depth: Option<usize>,
+
     /// Also include unique files in the output.
     #[arg(long)]
     pub unique: bool,
