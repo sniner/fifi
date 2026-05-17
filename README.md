@@ -37,17 +37,20 @@ Default scan:
 
 ```
 $ fifi /photos
-/photos/2023/scan.pdf
-├── /photos/2024/scan.pdf
-│   = /photos/2024/scan.pdf.bak
-└── /photos/archive/scan.pdf
-/photos/2024/IMG_3000.jpg
-└── /photos/import/IMG_3000.jpg
+─┬─── /photos/2023/scan.pdf
+ ├─┬─ /photos/2024/scan.pdf
+ │ └─ /photos/2024/scan.pdf.bak
+ └─── /photos/archive/scan.pdf
+─┬─── /photos/2024/IMG_3000.jpg
+ └─── /photos/import/IMG_3000.jpg
 ```
 
-Hardlink aliases (`    = `) appear under their canonical entry without their
-own tree branch — they're not really duplicates, just additional names for the
-same inode.
+Each group is a two-level tree. The first line (`─┬─── `) marks the original
+inode and starts a new group; further inodes (`├─── ` / `└─── `) are the
+duplicate copies. Level 2 (`│ └─ ` / `  └─ `) lists hardlink aliases under
+their inode: additional paths that point to the same storage, not separate
+duplicates. An inode with aliases ends its marker in `┬` instead of `─` so
+the vertical to the first alias is continuous.
 
 JSON for scripting (`duplicate_bytes` is the reclaimable amount of disk
 space — bytes that would actually be freed by removing the duplicate copies):

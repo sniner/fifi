@@ -2,11 +2,41 @@ use std::io::{self, Write};
 
 use fifi::{FileEntry, ScanResult};
 
-const BRANCH: &str = "├── ";
-const LAST: &str = "└── ";
-const ALIAS_BRANCH: &str = "│   = ";
-const ALIAS_LAST: &str = "    = ";
-const ALIAS_TOP: &str = "    = ";
+// Unique block: standalone files keep a flat layout, aliases marked with `=`.
+const UNIQUE_ALIAS: &str = "    = ";
+
+enum InodePos {
+    First,
+    Middle,
+    Last,
+}
+
+// Six markers for the inode line, picked by (position among inodes, whether
+// hardlink aliases follow). The trailing `┬` makes the vertical to the first
+// alias visually continuous; `─` keeps the marker width fixed. The original
+// (`First`) starts with `─┬` so each group has a visible left-edge cue.
+fn inode_marker(pos: InodePos, has_aliases: bool) -> &'static str {
+    match (pos, has_aliases) {
+        (InodePos::First, false) => "─┬─── ",
+        (InodePos::First, true) => "─┬─┬─ ",
+        (InodePos::Middle, false) => " ├─── ",
+        (InodePos::Middle, true) => " ├─┬─ ",
+        (InodePos::Last, false) => " └─── ",
+        (InodePos::Last, true) => " └─┬─ ",
+    }
+}
+
+// Four markers for an alias line. `parent_last` drops the level-1 `│` once
+// the parent inode has no more siblings; `alias_last` closes the level-2
+// vertical at the last alias of an inode.
+fn alias_marker(parent_last: bool, alias_last: bool) -> &'static str {
+    match (parent_last, alias_last) {
+        (false, false) => " │ ├─ ",
+        (false, true) => " │ └─ ",
+        (true, false) => "   ├─ ",
+        (true, true) => "   └─ ",
+    }
+}
 
 pub struct RenderOptions {
     pub include_unique: bool,
@@ -24,7 +54,7 @@ pub fn render_text<W: Write>(
         for f in &result.unique {
             writeln!(out, "{}", f.path.display())?;
             for alias in &f.aliases {
-                writeln!(out, "{ALIAS_TOP}{}", alias.display())?;
+                writeln!(out, "{UNIQUE_ALIAS}{}", alias.display())?;
             }
         }
         writeln!(out)?;
@@ -32,23 +62,44 @@ pub fn render_text<W: Write>(
 
     for group in &result.duplicates {
         let (orig, copies) = group.entries.split_first().expect("group non-empty");
-        writeln!(out, "{}", orig.path.display())?;
-        for alias in &orig.aliases {
-            writeln!(out, "{ALIAS_TOP}{}", alias.display())?;
-        }
-        let last_idx = copies.len().saturating_sub(1);
+        render_inode(out, orig, InodePos::First, false)?;
+
+        let last_copy_idx = copies.len().saturating_sub(1);
         for (i, f) in copies.iter().enumerate() {
-            let is_last = i == last_idx;
-            let (mark, alias_mark) = if is_last {
-                (LAST, ALIAS_LAST)
+            let is_last_copy = i == last_copy_idx;
+            let pos = if is_last_copy {
+                InodePos::Last
             } else {
-                (BRANCH, ALIAS_BRANCH)
+                InodePos::Middle
             };
-            writeln!(out, "{mark}{}", f.path.display())?;
-            for alias in &f.aliases {
-                writeln!(out, "{alias_mark}{}", alias.display())?;
-            }
+            render_inode(out, f, pos, is_last_copy)?;
         }
+    }
+    Ok(())
+}
+
+fn render_inode<W: Write>(
+    out: &mut W,
+    entry: &FileEntry,
+    pos: InodePos,
+    parent_last: bool,
+) -> io::Result<()> {
+    let has_aliases = !entry.aliases.is_empty();
+    writeln!(
+        out,
+        "{}{}",
+        inode_marker(pos, has_aliases),
+        entry.path.display()
+    )?;
+    let last_idx = entry.aliases.len().saturating_sub(1);
+    for (i, alias) in entry.aliases.iter().enumerate() {
+        let alias_last = i == last_idx;
+        writeln!(
+            out,
+            "{}{}",
+            alias_marker(parent_last, alias_last),
+            alias.display()
+        )?;
     }
     Ok(())
 }

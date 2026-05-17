@@ -24,14 +24,17 @@ fn default_text_output_uses_tree_markers() {
 
     let out = fifi().arg(root).assert().success();
     let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
-    assert!(
-        stdout.contains("└── "),
-        "expected tree marker in output:\n{stdout}"
-    );
-    // Original line must NOT start with a tree marker.
+    // Original line starts the group with the root marker, single duplicate
+    // (no aliases) closes the group.
     let first_line = stdout.lines().next().unwrap();
-    assert!(!first_line.starts_with("├── "));
-    assert!(!first_line.starts_with("└── "));
+    assert!(
+        first_line.starts_with("─┬─── "),
+        "expected `─┬─── ` on first line:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(" └─── "),
+        "expected ` └─── ` for the last inode:\n{stdout}"
+    );
 }
 
 #[test]
@@ -291,9 +294,16 @@ fn hardlinks_show_alias_in_text_output() {
 
     let out = fifi().arg(root).assert().success();
     let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    // The hardlinked pair becomes the original inode (with a ┬-connector
+    // marker because it has an alias), and the alias appears below as the
+    // only-and-last alias of a non-last parent.
     assert!(
-        stdout.contains("    = "),
-        "expected alias marker '    = ' in output:\n{stdout}"
+        stdout.contains("─┬─┬─ "),
+        "expected `─┬─┬─ ` for the original inode with an alias:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(" │ └─ "),
+        "expected ` │ └─ ` for the hardlink alias:\n{stdout}"
     );
 }
 

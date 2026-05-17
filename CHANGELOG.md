@@ -2,6 +2,18 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com).
 
+## [Unreleased]
+
+### Changed
+
+- **Text output** now renders each duplicate group as a two-level tree. The
+  first line (`─┬─── ` / `─┬─┬─ `) marks the original and starts a new group;
+  further inodes use ` ├─── ` / ` └─── `. Hardlink aliases sit on level two
+  (` │ └─ ` / `   └─ `) under their inode. Inodes with aliases end their
+  marker in `┬` so the vertical to the first alias is continuous. All paths
+  start in the same column, making them easier to compare by eye. JSON and
+  `--dupes-only` output are unchanged.
+
 ## [0.3.0] — 2026-05-16
 
 Adds a depth limit for directory descent. `--depth 0` matches the
