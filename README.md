@@ -41,6 +41,7 @@ $ fifi /photos
  ├─┬─ /photos/2024/scan.pdf
  │ └─ /photos/2024/scan.pdf.bak
  └─── /photos/archive/scan.pdf
+
 ─┬─── /photos/2024/IMG_3000.jpg
  └─── /photos/import/IMG_3000.jpg
 ```

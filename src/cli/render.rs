@@ -60,7 +60,10 @@ pub fn render_text<W: Write>(
         writeln!(out)?;
     }
 
-    for group in &result.duplicates {
+    for (gi, group) in result.duplicates.iter().enumerate() {
+        if gi > 0 {
+            writeln!(out)?;
+        }
         let (orig, copies) = group.entries.split_first().expect("group non-empty");
         render_inode(out, orig, InodePos::First, false)?;
 
