@@ -2,6 +2,14 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com).
 
+## [0.3.2] — 2026-05-18
+
+### Changed
+
+- **Text output** now separates duplicate groups with a blank line. Easier to
+  skim when many groups share a screen; JSON and `--dupes-only` output are
+  unchanged.
+
 ## [0.3.1] — 2026-05-17
 
 ### Changed
