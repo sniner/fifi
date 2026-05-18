@@ -2,6 +2,16 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com).
 
+## [Unreleased]
+
+### Added
+
+- **Experimental Windows support** — `fifi` now builds and runs on Windows.
+  Hardlink dedup uses `(volume_serial, file_index)` from
+  `GetFileInformationByHandle`, which costs one extra file open per scanned
+  file, so scans are slower than on POSIX. Symlink and Unix-permission
+  integration tests are skipped on Windows.
+
 ## [0.3.1] — 2026-05-17
 
 ### Changed

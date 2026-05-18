@@ -37,6 +37,7 @@ fn main() {
     }
 }
 
+#[cfg(unix)]
 fn install_sigpipe_default() {
     // Restore default SIGPIPE so `fifi /huge | head` exits cleanly instead
     // of panicking on a broken pipe in the middle of println!.
@@ -47,6 +48,9 @@ fn install_sigpipe_default() {
         );
     }
 }
+
+#[cfg(not(unix))]
+fn install_sigpipe_default() {}
 
 fn init_tracing(verbose: u8, quiet: bool) {
     let level = if quiet {

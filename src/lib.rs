@@ -2,6 +2,7 @@ pub mod error;
 pub mod hash;
 pub mod model;
 pub mod pipeline;
+mod platform;
 pub mod progress;
 pub mod scanner;
 pub mod util;

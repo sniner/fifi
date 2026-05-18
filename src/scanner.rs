@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 use std::fs;
-use std::os::unix::fs::MetadataExt;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::UNIX_EPOCH;
 
 use walkdir::WalkDir;
 
 use crate::hash::FullHashStrategy;
 use crate::model::FileEntry;
+use crate::platform;
 use crate::progress::ProgressSink;
 use crate::util::dup_sort;
 
@@ -40,38 +40,17 @@ impl ScanOptions {
     }
 }
 
-fn entry_from_metadata(path: PathBuf, meta: &fs::Metadata) -> FileEntry {
-    FileEntry {
+fn entry_from_metadata(path: PathBuf, meta: &fs::Metadata) -> io::Result<FileEntry> {
+    let (dev, ino) = platform::file_id(&path, meta)?;
+    Ok(FileEntry {
         path,
         aliases: Vec::new(),
-        size: meta.size(),
-        age: age_seconds(meta),
+        size: meta.len(),
+        age: platform::age_seconds(meta),
         hash: None,
-        dev: meta.dev(),
-        ino: meta.ino(),
-    }
-}
-
-/// File age as Unix seconds, used to pick the "original" within a
-/// duplicate group.
-///
-/// Prefers the real inode birth time via `Metadata::created()`, which on
-/// Linux 4.11+ reads `statx()` and works on ext4/btrfs/xfs/f2fs, and on
-/// macOS reads `st_birthtime`. POSIX doesn't mandate a creation time, so
-/// filesystems like ext3 or older mounts fall back to
-/// `min(mtime, ctime)`: ctime advances on any inode-touch (chmod, chown,
-/// link-count change, ...) even when the content hasn't changed, and
-/// mtime can be set arbitrarily via `touch -d`. The smaller of the two
-/// picks the older signal in both cases.
-fn age_seconds(meta: &fs::Metadata) -> f64 {
-    if let Ok(created) = meta.created() {
-        if let Ok(d) = created.duration_since(UNIX_EPOCH) {
-            return d.as_secs_f64();
-        }
-    }
-    let mtime = meta.mtime() as f64 + meta.mtime_nsec() as f64 / 1_000_000_000.0;
-    let ctime = meta.ctime() as f64 + meta.ctime_nsec() as f64 / 1_000_000_000.0;
-    if mtime < ctime { mtime } else { ctime }
+        dev,
+        ino,
+    })
 }
 
 fn is_hidden_name(name: &str) -> bool {
@@ -96,9 +75,14 @@ fn walk_path(
     };
 
     if meta.is_file() {
-        files.push(entry_from_metadata(root.to_path_buf(), &meta));
-        if let Some(p) = &progress {
-            p.tick(&format!("Scanned {} file(s) so far...", files.len()));
+        match entry_from_metadata(root.to_path_buf(), &meta) {
+            Ok(e) => {
+                files.push(e);
+                if let Some(p) = &progress {
+                    p.tick(&format!("Scanned {} file(s) so far...", files.len()));
+                }
+            }
+            Err(e) => tracing::error!("Cannot stat '{}': {}", root.display(), e),
         }
         return;
     }
@@ -160,9 +144,14 @@ fn walk_path(
                 continue;
             }
         };
-        files.push(entry_from_metadata(entry.path().to_path_buf(), &m));
-        if let Some(p) = &progress {
-            p.tick(&format!("Scanned {} file(s) so far...", files.len()));
+        match entry_from_metadata(entry.path().to_path_buf(), &m) {
+            Ok(e) => {
+                files.push(e);
+                if let Some(p) = &progress {
+                    p.tick(&format!("Scanned {} file(s) so far...", files.len()));
+                }
+            }
+            Err(e) => tracing::error!("Cannot stat '{}': {}", entry.path().display(), e),
         }
     }
 }

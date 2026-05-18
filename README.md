@@ -172,7 +172,9 @@ Download from the [releases page](https://github.com/sniner/fifi/releases).
 
 ## Requirements
 
-- POSIX (Linux, macOS). MS Windows is not supported.
+- Linux, macOS. Windows is supported experimentally; hardlink dedup
+  needs one extra file open per scanned file there, so scans are
+  noticeably slower than on POSIX.
 - Rust 1.85+ if building from source.
 
 ## License

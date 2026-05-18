@@ -74,6 +74,7 @@ fn hidden_directories_pruned_with_subtree() {
     assert_eq!(r.unique.len(), 1);
 }
 
+#[cfg(unix)]
 #[test]
 fn symlinks_ignored_by_default() {
     let td = TempDir::new().unwrap();
@@ -86,6 +87,7 @@ fn symlinks_ignored_by_default() {
     assert_eq!(r.unique.len(), 1);
 }
 
+#[cfg(unix)]
 #[test]
 fn symlinks_followed_when_requested() {
     let td = TempDir::new().unwrap();

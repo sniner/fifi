@@ -25,6 +25,7 @@ pub fn mkdir(parent: &Path, name: &str) -> PathBuf {
     p
 }
 
+#[cfg(unix)]
 #[allow(dead_code)]
 pub fn symlink(target: &Path, link: &Path) {
     std::os::unix::fs::symlink(target, link).unwrap();
