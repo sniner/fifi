@@ -2,6 +2,18 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com).
 
+## [0.4.0] — 2026-05-23
+
+### Breaking changes
+
+- **Exit codes** swap meaning: `0` now means "no duplicates" (the clean,
+  nothing-to-act-on state) and `1` means "duplicates were found". `2` for
+  errors is unchanged. This matches the linter convention used by tools like
+  `clippy` and `shellcheck`, and avoids the surprise of `set -e` scripts
+  tripping on a successful scan that simply found nothing. If you scripted
+  the previous behaviour, swap the branches: `fifi /backup && handle_dupes`
+  becomes `fifi /backup || handle_dupes`.
+
 ## [0.3.2] — 2026-05-18
 
 ### Changed
