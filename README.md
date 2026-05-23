@@ -86,12 +86,13 @@ $ fifi --dupes-only /photos | tr '\0' '\n' | head
 
 ### Exit codes
 
-- `0` — duplicates were found
-- `1` — no duplicates found (or no files at all)
+- `0` — no duplicates (the scan ran cleanly and there is nothing to act on)
+- `1` — duplicates were found
 - `2` — an error occurred
 
-This lets you write `fifi -q /backup && echo "duplicates found"` without parsing
-output.
+This lets you write `fifi -q /backup || echo "duplicates found"` without parsing
+output, the same way linters like `clippy` or `shellcheck` signal "something to
+look at".
 
 ## How it works
 

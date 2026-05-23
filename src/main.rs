@@ -14,8 +14,8 @@ use cli::render::{RenderOptions, collect_summary, render_dupes_only, render_text
 
 use fifi::{ScanOptions, TracingProgress, scan};
 
-const EXIT_DUPS_FOUND: i32 = 0;
-const EXIT_NO_DUPS: i32 = 1;
+const EXIT_NO_DUPS: i32 = 0;
+const EXIT_DUPS_FOUND: i32 = 1;
 const EXIT_ERROR: i32 = 2;
 
 fn main() {
