@@ -1,4 +1,5 @@
 pub mod error;
+pub mod filter;
 pub mod hash;
 pub mod model;
 pub mod pipeline;
@@ -7,6 +8,7 @@ pub mod scanner;
 pub mod util;
 
 pub use error::{Result, ScanError};
+pub use filter::{Decision, FilterChain, FilterRule, ParseError as FilterParseError, RuleKind};
 pub use hash::{
     DigestHasher, DigestKey, FullHashStrategy, PARTIAL_THRESHOLD, PARTIAL_WINDOW, Sha256Hasher,
     Xxh3Hasher, hex,

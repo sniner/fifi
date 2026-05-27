@@ -75,6 +75,8 @@ $ fifi --dupes-only /photos | tr '\0' '\n' | head
 | `--hidden` | Include hidden files and directories (ignored by default) |
 | `--one-file-system` | Do not enter mounted file systems |
 | `--depth N` | Limit subdirectory descent (`0` = no recursion, unbounded by default) |
+| `--exclude PATTERN` | Exclude paths matching a glob (repeatable; see below) |
+| `--include PATTERN` | Include paths matching a glob (repeatable; see below) |
 | `--unique` | Also include unique files in the output |
 | `--per-path` | Count one entry per path; don't merge files that share storage |
 | `--algo ALGO` | Full-hash algorithm: `xxh3` (default), `sha256`, `bytewise` |
@@ -83,6 +85,65 @@ $ fifi --dupes-only /photos | tr '\0' '\n' | head
 | `--summary` | Print only the final summary line |
 | `-v`, `-vv`, `-vvv` | Increase log verbosity (info / debug / trace) |
 | `-q`, `--quiet` | Suppress all but error output |
+
+### Include / exclude patterns
+
+`--exclude` and `--include` take glob patterns that filter the
+directory walk. Both flags are repeatable, and their order on the
+command line matters: rules are applied in sequence and the **last**
+matching rule decides whether a path is kept.
+
+Pattern syntax:
+
+- **No `/` in the pattern** → basename match at any depth. `*.log`
+  excludes every log file in the tree; `cache` matches anything
+  literally named `cache` regardless of where it sits.
+- **`/` in the pattern** → anchored to the scan root and matched
+  against the full relative path. `src/*.log` only catches `*.log`
+  directly inside the top-level `src/`. `*` and `?` never cross `/`;
+  for explicit recursion write `**`.
+- **Trailing `/`** opts into directory-only. `cache/` matches any
+  directory named `cache` anywhere, never a file. For excludes this
+  also prunes the entire subtree from the walk (the walker doesn't
+  descend in the first place).
+- `{a,b}` alternations, `[abc]` character classes, and the usual glob
+  escapes are supported (via [globset](https://crates.io/crates/globset)).
+
+A directory-only **include** rescues every file inside that directory
+from a prior broad exclude — unless a later, more specific rule
+overrides for individual paths.
+
+**Lone-include shortcut:** if the first filter flag on the command line
+is `--include`, an implicit `--exclude '*'` is prepended. That way
+`fifi --include '*.mkv' /media` narrows the scan to mkv files instead
+of being a no-op (the default behavior already includes everything,
+so an include alone wouldn't otherwise change anything). Starting
+with `--exclude` opts out of this — the user has stated explicit
+intent.
+
+Examples:
+
+```
+# Skip every node_modules directory anywhere in the tree.
+fifi --exclude 'node_modules/' .
+
+# Keep only mkv files, anywhere in the tree.
+fifi --include '*.mkv' /media
+
+# Scan only the photos subtree.
+fifi --include 'photos/' /backup
+
+# Include all .txt, but blacklist the obvious noise.
+fifi --include '*.txt' --exclude 'readme.txt' /docs
+
+# Only mkv, but exclude one specific file.
+fifi --include '*.mkv' --exclude 'sample.mkv' /media
+```
+
+fifi does **not** read `.gitignore` files. The pattern syntax here is
+inspired by gitignore for the common bits (basename mode, trailing-`/`
+for directories) but is otherwise independent and does not pretend to
+be compatible.
 
 ### Exit codes
 
@@ -151,7 +212,6 @@ as a standalone file.
 
 ## Roadmap
 
-- **gitignore-style excludes** — `--exclude-from` with proper glob support.
 - **Progress bars** via indicatif when stdout is a terminal.
 
 ## Installation

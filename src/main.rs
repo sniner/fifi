@@ -3,12 +3,12 @@ use std::process;
 use std::sync::Arc;
 use std::time::Instant;
 
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches};
 use tracing_subscriber::EnvFilter;
 
 mod cli;
 
-use cli::args::{Cli, OutputMode};
+use cli::args::{Cli, OutputMode, build_filter};
 use cli::output::{StatsSnapshot, emit_json, emit_json_error, emit_json_summary};
 use cli::render::{RenderOptions, collect_summary, render_dupes_only, render_text, summary_line};
 
@@ -21,11 +21,20 @@ const EXIT_ERROR: i32 = 2;
 fn main() {
     install_sigpipe_default();
 
-    let cli = Cli::parse();
+    // Parse once into raw ArgMatches, then derive the typed Cli from
+    // the same match set. We need both: the derive layer for ergonomic
+    // field access, and the raw ArgMatches for `indices_of` to recover
+    // the original argv order of `--include`/`--exclude` (which the
+    // derive layer flattens into two separate vectors).
+    let matches = Cli::command().get_matches();
+    let cli = match Cli::from_arg_matches(&matches) {
+        Ok(c) => c,
+        Err(e) => e.exit(),
+    };
     let mode = cli.output_mode();
     init_tracing(cli.verbose, cli.quiet);
 
-    match run(&cli, mode) {
+    match run(&cli, &matches, mode) {
         Ok(found) => process::exit(if found { EXIT_DUPS_FOUND } else { EXIT_NO_DUPS }),
         Err(e) => {
             match mode {
@@ -67,7 +76,7 @@ fn init_tracing(verbose: u8, quiet: bool) {
         .try_init();
 }
 
-fn run(cli: &Cli, mode: OutputMode) -> anyhow::Result<bool> {
+fn run(cli: &Cli, matches: &clap::ArgMatches, mode: OutputMode) -> anyhow::Result<bool> {
     let algo = cli.algo.into_strategy();
     let algo_name = algo.name();
 
@@ -77,6 +86,7 @@ fn run(cli: &Cli, mode: OutputMode) -> anyhow::Result<bool> {
     opts.one_file_system = cli.one_file_system;
     opts.per_path = cli.per_path;
     opts.depth = cli.depth;
+    opts.filter = build_filter(matches)?;
     if cli.verbose >= 1 {
         opts.progress = Some(Arc::new(TracingProgress::new()));
     }
