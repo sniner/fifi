@@ -15,10 +15,12 @@ struct State {
 }
 
 impl TracingProgress {
+    #[must_use]
     pub fn new() -> Self {
         Self::with_timing(Duration::from_secs(2), Duration::from_secs(1))
     }
 
+    #[must_use]
     pub fn with_timing(interval: Duration, warmup: Duration) -> Self {
         Self {
             state: Mutex::new(State {

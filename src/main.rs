@@ -109,7 +109,7 @@ fn run(cli: &Cli, mode: OutputMode) -> anyhow::Result<bool> {
                 &result,
                 cli.unique,
                 algo_name,
-                StatsSnapshot {
+                &StatsSnapshot {
                     elapsed_seconds: elapsed,
                 },
             )?;
@@ -118,7 +118,7 @@ fn run(cli: &Cli, mode: OutputMode) -> anyhow::Result<bool> {
             emit_json_summary(
                 &mut stdout,
                 &result,
-                StatsSnapshot {
+                &StatsSnapshot {
                     elapsed_seconds: elapsed,
                 },
             )?;

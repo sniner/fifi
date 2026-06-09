@@ -83,6 +83,7 @@ fn json_output_has_expected_shape() {
     let stats = json.get("statistics").unwrap();
     assert_eq!(stats.get("duplicate_groups").unwrap().as_u64().unwrap(), 1);
     assert_eq!(stats.get("duplicate_copies").unwrap().as_u64().unwrap(), 1);
+    assert_eq!(stats.get("skipped_dirs").unwrap().as_u64().unwrap(), 0);
 }
 
 #[test]
@@ -308,6 +309,7 @@ fn hardlinks_show_alias_in_text_output() {
 }
 
 #[test]
+#[allow(clippy::naive_bytecount)] // no point pulling in bytecount for a test
 fn dupes_only_with_three_copies_three_nuls() {
     let td = TempDir::new().unwrap();
     let root = td.path();

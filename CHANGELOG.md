@@ -4,7 +4,31 @@ Format based on [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+### Added
+
+- **Statistics** gain a `skipped_dirs` count: directories the scan could not
+  enter (typically permission errors) are now warned about at default
+  verbosity and counted in the JSON statistics block and the summary line.
+  Previously they were only visible at debug verbosity, so a scan could look
+  complete while whole subtrees were missing
+
+### Changed
+
+- **Duplicate root arguments** (`fifi x x`) are now scanned once instead of
+  producing self-duplicates under `--per-path`; overlapping roots
+  (`fifi /a /a/sub`) trigger a warning that files reachable from both will be
+  reported twice
+- **Summary line** wording: `3 duplicates across 2 groups` instead of the
+  misleading `3 duplicates out of 2 files`
+- **Library API**: `walk_paths` now returns a `WalkResult` (files plus
+  `skipped_dirs`) instead of a bare `Vec<FileEntry>`; `ScanResult` gains the
+  `skipped_dirs` field
+
 ### Fixed
+
+- **`--algo bytewise`** no longer treats a short read as a content mismatch —
+  on filesystems that may return partial reads (network mounts), identical
+  files could be misreported as distinct
 
 - **`--dupes-only`** output is now strictly NUL-delimited, as documented: every
   path is terminated by a NUL byte, making the stream safe for `xargs -0`.

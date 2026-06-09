@@ -38,6 +38,7 @@ struct JsonStats {
     duplicate_copies: usize,
     duplicate_bytes: u64,
     unreadable_files: usize,
+    skipped_dirs: usize,
     elapsed_seconds: f64,
 }
 
@@ -52,20 +53,20 @@ struct JsonResult<'a> {
     statistics: JsonStats,
 }
 
-fn make_file<'a>(f: &'a FileEntry) -> JsonFile<'a> {
+fn make_file(f: &FileEntry) -> JsonFile<'_> {
     JsonFile {
         path: &f.path,
         age: f.age,
-        aliases: f.aliases.iter().map(|p| p.as_path()).collect(),
+        aliases: f.aliases.iter().map(std::path::PathBuf::as_path).collect(),
     }
 }
 
-fn make_file_full<'a>(f: &'a FileEntry) -> JsonFileFull<'a> {
+fn make_file_full(f: &FileEntry) -> JsonFileFull<'_> {
     JsonFileFull {
         path: &f.path,
         size: f.size,
         age: f.age,
-        aliases: f.aliases.iter().map(|p| p.as_path()).collect(),
+        aliases: f.aliases.iter().map(std::path::PathBuf::as_path).collect(),
     }
 }
 
@@ -97,7 +98,7 @@ fn build_stats(result: &ScanResult, snapshot: &StatsSnapshot) -> JsonStats {
         .duplicates
         .iter()
         .map(|g| {
-            let size = g.entries.first().map(|e| e.size).unwrap_or(0);
+            let size = g.entries.first().map_or(0, |e| e.size);
             (count_entries(&g.entries).saturating_sub(1) as u64) * size
         })
         .sum();
@@ -124,6 +125,7 @@ fn build_stats(result: &ScanResult, snapshot: &StatsSnapshot) -> JsonStats {
         duplicate_copies: dup_copies,
         duplicate_bytes: dup_bytes,
         unreadable_files: count_entries(&result.unreadable),
+        skipped_dirs: result.skipped_dirs,
         elapsed_seconds: (snapshot.elapsed_seconds * 10_000.0).round() / 10_000.0,
     }
 }
@@ -136,10 +138,10 @@ struct JsonSummaryOnly {
 pub fn emit_json_summary<W: Write>(
     mut out: W,
     result: &ScanResult,
-    snapshot: StatsSnapshot,
+    snapshot: &StatsSnapshot,
 ) -> io::Result<()> {
     let payload = JsonSummaryOnly {
-        statistics: build_stats(result, &snapshot),
+        statistics: build_stats(result, snapshot),
     };
     serde_json::to_writer_pretty(&mut out, &payload).map_err(io::Error::other)?;
     writeln!(out)?;
@@ -152,7 +154,7 @@ pub fn emit_json<W: Write>(
     result: &ScanResult,
     include_unique: bool,
     algo_name: &str,
-    snapshot: StatsSnapshot,
+    snapshot: &StatsSnapshot,
 ) -> io::Result<()> {
     // ScanResult is already deterministically sorted by the pipeline, so
     // the renderer just walks it.
@@ -175,18 +177,21 @@ pub fn emit_json<W: Write>(
         None
     };
 
-    let unreadable_block = if !result.unreadable.is_empty() {
-        Some(result.unreadable.iter().map(make_file_full).collect())
-    } else {
+    let unreadable_block = if result.unreadable.is_empty() {
         None
+    } else {
+        Some(result.unreadable.iter().map(make_file_full).collect())
     };
 
     let json = JsonResult {
-        scanned_paths: scanned_paths.iter().map(|p| p.as_path()).collect(),
+        scanned_paths: scanned_paths
+            .iter()
+            .map(std::path::PathBuf::as_path)
+            .collect(),
         duplicates: dup_groups,
         unique: unique_block,
         unreadable: unreadable_block,
-        statistics: build_stats(result, &snapshot),
+        statistics: build_stats(result, snapshot),
     };
 
     serde_json::to_writer_pretty(&mut out, &json).map_err(io::Error::other)?;

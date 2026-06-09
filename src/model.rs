@@ -35,9 +35,14 @@ pub struct ScanResult {
     pub unique: Vec<FileEntry>,
     pub duplicates: Vec<DuplicateGroup>,
     pub unreadable: Vec<FileEntry>,
+
+    /// Number of directories the walk could not enter (permission errors
+    /// and the like). Non-zero means the scan was incomplete.
+    pub skipped_dirs: usize,
 }
 
 impl ScanResult {
+    #[must_use]
     pub fn has_duplicates(&self) -> bool {
         !self.duplicates.is_empty()
     }

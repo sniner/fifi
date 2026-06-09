@@ -134,6 +134,7 @@ pub struct SummaryStats {
     pub copies: usize,
     pub groups: usize,
     pub unreadable: usize,
+    pub skipped_dirs: usize,
     pub elapsed_seconds: f64,
 }
 
@@ -154,16 +155,19 @@ pub fn summary_line(stats: &SummaryStats) -> String {
             plural(stats.copies, "duplicate", "duplicates")
         ),
         format!(
-            "out of {} {}",
+            "across {} {}",
             stats.groups,
-            plural(stats.groups, "file", "files")
+            plural(stats.groups, "group", "groups")
         ),
     ];
     if stats.unreadable > 0 {
+        parts.push(format!("({} unreadable)", stats.unreadable));
+    }
+    if stats.skipped_dirs > 0 {
         parts.push(format!(
-            "({} {})",
-            stats.unreadable,
-            plural(stats.unreadable, "unreadable", "unreadable")
+            "({} {} skipped)",
+            stats.skipped_dirs,
+            plural(stats.skipped_dirs, "dir", "dirs")
         ));
     }
     parts.push(format!("in {:.4}s", stats.elapsed_seconds));
@@ -182,6 +186,7 @@ pub fn collect_summary(result: &ScanResult, elapsed: f64) -> SummaryStats {
         copies: dup_files - result.duplicates.len(),
         groups: result.duplicates.len(),
         unreadable,
+        skipped_dirs: result.skipped_dirs,
         elapsed_seconds: elapsed,
     }
 }

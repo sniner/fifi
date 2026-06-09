@@ -137,6 +137,23 @@ enum CompareError {
     Right(io::Error),
 }
 
+/// Fill `buf` from `r` until EOF or the buffer is full, returning the
+/// number of bytes read. A bare `read()` may legitimately return short of
+/// a full buffer before EOF (network filesystems, signal interruption);
+/// treating that as EOF would make identical files compare unequal.
+fn read_full(r: &mut impl Read, buf: &mut [u8]) -> io::Result<usize> {
+    let mut filled = 0;
+    while filled < buf.len() {
+        match r.read(&mut buf[filled..]) {
+            Ok(0) => break,
+            Ok(n) => filled += n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(filled)
+}
+
 /// Compare two files byte-by-byte. Returns `Ok(true)` if every byte
 /// matches (and both files end together), `Ok(false)` on first
 /// mismatch or differing lengths. Lengths typically match — the caller
@@ -148,8 +165,8 @@ fn files_equal(a: &Path, b: &Path) -> std::result::Result<bool, CompareError> {
     let mut buf_a = vec![0u8; BYTEWISE_BLOCK];
     let mut buf_b = vec![0u8; BYTEWISE_BLOCK];
     loop {
-        let na = fa.read(&mut buf_a).map_err(CompareError::Left)?;
-        let nb = fb.read(&mut buf_b).map_err(CompareError::Right)?;
+        let na = read_full(&mut fa, &mut buf_a).map_err(CompareError::Left)?;
+        let nb = read_full(&mut fb, &mut buf_b).map_err(CompareError::Right)?;
         if na != nb {
             return Ok(false);
         }
@@ -160,6 +177,13 @@ fn files_equal(a: &Path, b: &Path) -> std::result::Result<bool, CompareError> {
             return Ok(false);
         }
     }
+}
+
+/// Where a candidate entry ends up during the bytewise pass.
+enum Placement {
+    Matched(usize),
+    Unreadable,
+    NewGroup,
 }
 
 fn bucket_one_group_bytewise(
@@ -175,11 +199,6 @@ fn bucket_one_group_bytewise(
     // start a new subgroup. The typical case after partial-xxh3 is "all
     // identical", so most entries land in the first subgroup with one
     // comparison each (O(N) reads, O(N) comparisons).
-    enum Placement {
-        Matched(usize),
-        Unreadable,
-        NewGroup,
-    }
     let mut subgroups: Vec<Vec<FileEntry>> = Vec::new();
     for entry in group {
         if let Some(p) = progress {
@@ -242,26 +261,30 @@ fn merge(buckets: Vec<BucketedGroup>) -> BucketedGroup {
     acc
 }
 
+/// Run the size → partial-hash → full-content phases over the collected
+/// files and assemble the deterministically ordered [`ScanResult`].
+///
+/// # Errors
+///
+/// Returns [`ScanError::UnsupportedAlgo`] when the configured hasher
+/// reports itself unavailable. Per-file I/O errors never abort the
+/// pipeline; the affected files land in `ScanResult::unreadable`.
 pub fn run_pipeline(files: Vec<FileEntry>, opts: &ScanOptions) -> Result<ScanResult> {
     let progress = opts.progress.as_deref();
 
     let total_files = files.len();
     let (mut unique, candidates) = split_by_size(files);
     tracing::info!(
-        "Discovered {} file(s) in {} size group(s)",
+        "Discovered {} file(s), {} candidate size group(s)",
         total_files,
-        candidates.len() + unique.len()
+        candidates.len()
     );
 
     // Phase 2: partial hash (parallel over groups).
     let partial_count: usize = candidates
         .iter()
-        .filter(|g| {
-            g.first()
-                .map(|f| f.size >= PARTIAL_THRESHOLD)
-                .unwrap_or(false)
-        })
-        .map(|g| g.len())
+        .filter(|g| g.first().is_some_and(|f| f.size >= PARTIAL_THRESHOLD))
+        .map(std::vec::Vec::len)
         .sum();
     if partial_count > 0 {
         tracing::info!("Partial-hashing {} file(s)...", partial_count);
@@ -275,7 +298,7 @@ pub fn run_pipeline(files: Vec<FileEntry>, opts: &ScanOptions) -> Result<ScanRes
     let mut unreadable = partial.unreadable;
 
     // Phase 3: full hash, dispatched on the strategy.
-    let full_count: usize = partial.multi.iter().map(|g| g.len()).sum();
+    let full_count: usize = partial.multi.iter().map(std::vec::Vec::len).sum();
     if full_count > 0 {
         tracing::info!("Full-hashing {} file(s)...", full_count);
     }
@@ -324,12 +347,14 @@ pub fn run_pipeline(files: Vec<FileEntry>, opts: &ScanOptions) -> Result<ScanRes
         unique,
         duplicates,
         unreadable,
+        skipped_dirs: 0,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
 
     fn entry(path: &str, size: u64) -> FileEntry {
@@ -420,6 +445,36 @@ mod tests {
         assert_eq!(out.singletons.len(), 2);
     }
 
+    /// Yields one byte per `read()` call — simulates the short reads
+    /// network filesystems may produce before EOF.
+    struct DribbleReader<'a> {
+        data: &'a [u8],
+    }
+
+    impl Read for DribbleReader<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            match (self.data.split_first(), buf.first_mut()) {
+                (Some((&b, rest)), Some(slot)) => {
+                    *slot = b;
+                    self.data = rest;
+                    Ok(1)
+                }
+                _ => Ok(0),
+            }
+        }
+    }
+
+    #[test]
+    fn read_full_fills_buffer_despite_short_reads() {
+        let mut r = DribbleReader { data: b"abcdef" };
+        let mut buf = [0u8; 4];
+        assert_eq!(read_full(&mut r, &mut buf).unwrap(), 4);
+        assert_eq!(&buf, b"abcd");
+        // Remainder is shorter than the buffer: stops at EOF.
+        assert_eq!(read_full(&mut r, &mut buf).unwrap(), 2);
+        assert_eq!(&buf[..2], b"ef");
+    }
+
     #[test]
     fn bytewise_unreadable_representative_is_blamed_not_its_peers() {
         // root bypasses chmod 000 read-protection, so this test can't
@@ -434,7 +489,6 @@ mod tests {
         std::fs::write(&locked, b"same content").unwrap();
         std::fs::write(&p2, b"same content").unwrap();
         std::fs::write(&p3, b"same content").unwrap();
-        use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
 
         // The unreadable file comes first, so it becomes the subgroup

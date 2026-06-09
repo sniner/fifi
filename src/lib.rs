@@ -13,15 +13,27 @@ pub use hash::{
 };
 pub use model::{DuplicateGroup, FileEntry, ScanResult};
 pub use progress::{ProgressSink, TracingProgress};
-pub use scanner::{ScanOptions, dedup_hardlinks, walk_paths};
+pub use scanner::{ScanOptions, WalkResult, dedup_hardlinks, walk_paths};
 
 use std::path::PathBuf;
 
+/// Walk `paths`, collapse hardlink families (unless `opts.per_path`), and
+/// detect duplicate files.
+///
+/// # Errors
+///
+/// Returns [`ScanError::UnsupportedAlgo`] when the configured hasher
+/// reports itself unavailable. Unreadable files and skipped directories
+/// are reported inside the [`ScanResult`], not as errors.
 pub fn scan(paths: &[PathBuf], opts: &ScanOptions) -> Result<ScanResult> {
     tracing::info!("Scanning {} path(s)...", paths.len());
-    let mut entries = walk_paths(paths, opts);
-    if !opts.per_path {
-        entries = dedup_hardlinks(entries);
-    }
-    pipeline::run_pipeline(entries, opts)
+    let walk = walk_paths(paths, opts);
+    let entries = if opts.per_path {
+        walk.files
+    } else {
+        dedup_hardlinks(walk.files)
+    };
+    let mut result = pipeline::run_pipeline(entries, opts)?;
+    result.skipped_dirs = walk.skipped_dirs;
+    Ok(result)
 }

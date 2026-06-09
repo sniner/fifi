@@ -11,7 +11,13 @@ const BLOCK_SIZE: usize = 1 << 20;
 pub type DigestKey = Vec<u8>;
 
 pub trait DigestHasher: Send + Sync {
+    /// Hash the entire content of the file at `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns any I/O error from opening or reading the file.
     fn digest(&self, path: &Path) -> io::Result<DigestKey>;
+
     fn name(&self) -> &'static str;
 
     /// Hook for hashers that may be unavailable at runtime (e.g. a library
@@ -75,6 +81,7 @@ pub enum FullHashStrategy {
 }
 
 impl FullHashStrategy {
+    #[must_use]
     pub fn name(&self) -> &'static str {
         match self {
             FullHashStrategy::Digest(d) => d.name(),
@@ -82,19 +89,31 @@ impl FullHashStrategy {
         }
     }
 
+    #[must_use]
     pub fn xxh3() -> Self {
         FullHashStrategy::Digest(Box::new(Xxh3Hasher))
     }
 
+    #[must_use]
     pub fn sha256() -> Self {
         FullHashStrategy::Digest(Box::new(Sha256Hasher))
     }
 }
 
+/// Hash the first and last [`PARTIAL_WINDOW`] bytes of a file. Callers must
+/// only pass files of at least [`PARTIAL_THRESHOLD`] bytes, so the two
+/// windows never overlap.
+///
+/// # Errors
+///
+/// Returns any I/O error from opening, seeking, or reading the file —
+/// including a file shrunk below `size` since it was stat'ed.
 pub fn partial_xxh3(path: &Path, size: u64) -> io::Result<DigestKey> {
     debug_assert!(size >= PARTIAL_THRESHOLD);
     let mut file = File::open(path)?;
     let mut hasher = Xxh3::new();
+    // PARTIAL_WINDOW is 4 KiB; the cast cannot truncate.
+    #[allow(clippy::cast_possible_truncation)]
     let mut buf = vec![0u8; PARTIAL_WINDOW as usize];
 
     file.read_exact(&mut buf)?;
@@ -107,6 +126,7 @@ pub fn partial_xxh3(path: &Path, size: u64) -> io::Result<DigestKey> {
     Ok(hasher.digest128().to_be_bytes().to_vec())
 }
 
+#[must_use]
 pub fn hex(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(bytes.len() * 2);
     for b in bytes {
@@ -175,7 +195,7 @@ mod tests {
 
     #[test]
     fn partial_xxh3_separates_head_difference() {
-        let mut a = vec![0u8; PARTIAL_THRESHOLD as usize];
+        let mut a = vec![0u8; usize::try_from(PARTIAL_THRESHOLD).unwrap()];
         let mut b = a.clone();
         a[0] = 1;
         let fa = write_temp(&a);

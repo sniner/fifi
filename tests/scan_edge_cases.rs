@@ -95,6 +95,51 @@ fn duplicates_still_found_when_one_file_unreadable() {
 }
 
 #[test]
+fn unreadable_directory_is_counted_as_skipped() {
+    if is_root() {
+        eprintln!("Skipping: running as root, chmod 000 has no effect");
+        return;
+    }
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    mkfile(root, "visible", b"x");
+    let locked = mkdir(root, "locked");
+    mkfile(&locked, "hidden-from-scan", b"y");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let r = scan_one(root);
+    assert_eq!(r.skipped_dirs, 1, "the locked directory must be counted");
+    assert_eq!(r.unique.len(), 1, "only the visible file is scanned");
+
+    // Restore so tempfile can clean up.
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[test]
+fn readable_scan_reports_zero_skipped_dirs() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    mkfile(root, "a", b"x");
+
+    let r = scan_one(root);
+    assert_eq!(r.skipped_dirs, 0);
+}
+
+#[test]
+fn duplicate_roots_are_scanned_once() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    mkfile(root, "only", b"lonely content");
+
+    // Naming the same root twice must not turn the file into its own
+    // duplicate — neither per path nor via a self-alias.
+    let r = scan_with(&[root, root], |o| o.per_path = true);
+    assert!(r.duplicates.is_empty(), "got {:?}", r.duplicates);
+    assert_eq!(r.unique.len(), 1);
+    assert!(r.unique[0].aliases.is_empty());
+}
+
+#[test]
 fn broken_symlink_does_not_crash_when_following() {
     let td = TempDir::new().unwrap();
     let root = td.path();

@@ -10,7 +10,7 @@ fn make_buf(seed: u8) -> Vec<u8> {
     let mut v = vec![seed; LARGE];
     // A non-uniform tail so the partial hash isn't trivially zero.
     for (i, b) in v.iter_mut().enumerate() {
-        *b = ((i & 0xff) ^ seed as usize) as u8;
+        *b = u8::try_from(i & 0xff).unwrap() ^ seed;
     }
     v
 }

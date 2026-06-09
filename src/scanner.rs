@@ -12,6 +12,9 @@ use crate::model::FileEntry;
 use crate::progress::ProgressSink;
 use crate::util::dup_sort;
 
+// One bool per independent CLI flag — folding them into bitflags or
+// sub-structs would only obscure the 1:1 mapping to the command line.
+#[allow(clippy::struct_excessive_bools)]
 pub struct ScanOptions {
     pub follow: bool,
     pub include_hidden: bool,
@@ -27,6 +30,7 @@ pub struct ScanOptions {
 }
 
 impl ScanOptions {
+    #[must_use]
     pub fn new(algo: FullHashStrategy) -> Self {
         Self {
             follow: false,
@@ -63,6 +67,11 @@ fn entry_from_metadata(path: PathBuf, meta: &fs::Metadata) -> FileEntry {
 /// link-count change, ...) even when the content hasn't changed, and
 /// mtime can be set arbitrarily via `touch -d`. The smaller of the two
 /// picks the older signal in both cases.
+//
+// Unix timestamps fit comfortably into f64's 52-bit mantissa for any
+// plausible date, and the nanosecond fields are < 1e9 — the precision
+// loss clippy warns about cannot occur here.
+#[allow(clippy::cast_precision_loss)]
 fn age_seconds(meta: &fs::Metadata) -> f64 {
     if let Ok(created) = meta.created() {
         if let Ok(d) = created.duration_since(UNIX_EPOCH) {
@@ -78,10 +87,18 @@ fn is_hidden_name(name: &str) -> bool {
     name.starts_with('.')
 }
 
+/// Outcome of the directory walk: the files collected plus the number of
+/// directories that could not be entered (permission errors and the like).
+/// A non-zero `skipped_dirs` means the scan results are incomplete.
+pub struct WalkResult {
+    pub files: Vec<FileEntry>,
+    pub skipped_dirs: usize,
+}
+
 fn walk_path(
     root: &Path,
-    files: &mut Vec<FileEntry>,
-    progress: &Option<Arc<dyn ProgressSink>>,
+    out: &mut WalkResult,
+    progress: Option<&dyn ProgressSink>,
     opts: &ScanOptions,
 ) {
     // Follow symlinks at the root level (matches Python: tests is_dir/is_file
@@ -96,9 +113,10 @@ fn walk_path(
     };
 
     if meta.is_file() {
-        files.push(entry_from_metadata(root.to_path_buf(), &meta));
-        if let Some(p) = &progress {
-            p.tick(&format!("Scanned {} file(s) so far...", files.len()));
+        out.files
+            .push(entry_from_metadata(root.to_path_buf(), &meta));
+        if let Some(p) = progress {
+            p.tick(&format!("Scanned {} file(s) so far...", out.files.len()));
         }
         return;
     }
@@ -140,10 +158,17 @@ fn walk_path(
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
-                // walkdir surfaces loop detection (under follow_links) and
-                // permission errors here. Demote to debug so they don't
-                // interrupt scans.
-                tracing::debug!("walk error: {}", e);
+                // Loop detection under follow_links is expected noise.
+                // Everything else is typically EACCES on a directory: the
+                // subtree silently vanishes from the results otherwise, so
+                // surface it at warn level and count it — callers can tell
+                // an incomplete scan from a clean one.
+                if e.loop_ancestor().is_some() {
+                    tracing::debug!("walk error: {}", e);
+                } else {
+                    out.skipped_dirs += 1;
+                    tracing::warn!("{}", e);
+                }
                 continue;
             }
         };
@@ -160,22 +185,48 @@ fn walk_path(
                 continue;
             }
         };
-        files.push(entry_from_metadata(entry.path().to_path_buf(), &m));
-        if let Some(p) = &progress {
-            p.tick(&format!("Scanned {} file(s) so far...", files.len()));
+        out.files
+            .push(entry_from_metadata(entry.path().to_path_buf(), &m));
+        if let Some(p) = progress {
+            p.tick(&format!("Scanned {} file(s) so far...", out.files.len()));
         }
     }
 }
 
-pub fn walk_paths(roots: &[PathBuf], opts: &ScanOptions) -> Vec<FileEntry> {
-    let mut files: Vec<FileEntry> = Vec::new();
-    let progress = opts.progress.clone();
+pub fn walk_paths(roots: &[PathBuf], opts: &ScanOptions) -> WalkResult {
+    let mut out = WalkResult {
+        files: Vec::new(),
+        skipped_dirs: 0,
+    };
+    let progress = opts.progress.as_deref();
 
+    // Scan each distinct root once: `fifi x x` would otherwise report every
+    // file as its own duplicate under --per-path. Nested roots (one inside
+    // another) stay legitimate — with --depth the outer walk may not reach
+    // the inner root at all — so they only get a warning.
+    let mut seen: Vec<PathBuf> = Vec::new();
     for root in roots {
-        walk_path(root, &mut files, &progress, opts)
+        let canon = fs::canonicalize(root).unwrap_or_else(|_| root.clone());
+        if seen.contains(&canon) {
+            tracing::warn!("Skipping duplicate root '{}'", root.display());
+            continue;
+        }
+        if let Some(other) = seen
+            .iter()
+            .find(|s| canon.starts_with(s) || s.starts_with(&canon))
+        {
+            tracing::warn!(
+                "Root '{}' overlaps with '{}' — files reachable from both will be \
+                 reported twice (as false duplicates under --per-path)",
+                root.display(),
+                other.display()
+            );
+        }
+        seen.push(canon);
+        walk_path(root, &mut out, progress, opts);
     }
 
-    files
+    out
 }
 
 /// Collapse files that share `(dev, ino)` into one canonical `FileEntry`,
@@ -184,7 +235,7 @@ pub fn walk_paths(roots: &[PathBuf], opts: &ScanOptions) -> Vec<FileEntry> {
 ///
 /// We group by `(dev, ino, size)` rather than `(dev, ino)` alone as a
 /// safety net against filesystems that synthesize inode numbers (most
-/// commonly SMB/CIFS and WebDAV), where the same fake inode can appear
+/// commonly SMB/CIFS and `WebDAV`), where the same fake inode can appear
 /// across distinct files. Genuine hardlinks share their size by
 /// construction, so they're still merged correctly; impostors with
 /// mismatched sizes stay separate and produce a warning.
@@ -215,13 +266,18 @@ pub fn dedup_hardlinks(entries: Vec<FileEntry>) -> Vec<FileEntry> {
 
     let mut out = Vec::with_capacity(groups.len());
     for (_, members) in groups {
-        if members.len() == 1 {
-            out.push(members.into_iter().next().unwrap());
-            continue;
-        }
-        let sorted = dup_sort(&members);
+        // Singletons skip the dup_sort (and its clone); for hardlink
+        // families the heuristically-first entry becomes canonical and
+        // the rest turn into aliases.
+        let sorted = if members.len() == 1 {
+            members
+        } else {
+            dup_sort(&members)
+        };
         let mut iter = sorted.into_iter();
-        let mut canonical = iter.next().unwrap();
+        let Some(mut canonical) = iter.next() else {
+            continue;
+        };
         canonical.aliases = iter.map(|e| e.path).collect();
         out.push(canonical);
     }

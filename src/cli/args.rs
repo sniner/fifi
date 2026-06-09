@@ -38,6 +38,8 @@ impl AlgoArg {
         .args(["json", "dupes_only"])
         .multiple(false)
 ))]
+// One bool per independent CLI flag — that's what a flag struct is.
+#[allow(clippy::struct_excessive_bools)]
 pub struct Cli {
     /// Paths to scan.
     #[arg(required = true)]

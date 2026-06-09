@@ -3,6 +3,10 @@ use std::path::Path;
 
 use crate::model::FileEntry;
 
+// Display-only rounding to one decimal — the f64 precision loss clippy
+// warns about is far below what the formatting shows anyway.
+#[allow(clippy::cast_precision_loss)]
+#[must_use]
 pub fn human_size(n: u64) -> String {
     let mut x = n as f64;
     for unit in ["B", "KiB", "MiB", "GiB", "TiB"] {
@@ -44,6 +48,7 @@ fn natural_chunks(s: &str) -> Vec<Chunk<'_>> {
     out
 }
 
+#[must_use]
 pub fn natural_cmp(a: &Path, b: &Path) -> Ordering {
     let a_str = a.to_string_lossy();
     let b_str = b.to_string_lossy();
@@ -69,6 +74,7 @@ pub fn natural_cmp(a: &Path, b: &Path) -> Ordering {
 /// Original-detection heuristic: oldest first, then fewer path components,
 /// then shorter path string, then lexicographic path order as a deterministic
 /// tiebreaker.
+#[must_use]
 pub fn dup_sort(entries: &[FileEntry]) -> Vec<FileEntry> {
     let mut v = entries.to_vec();
     v.sort_by(|a, b| {
