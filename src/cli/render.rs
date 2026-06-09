@@ -107,29 +107,24 @@ fn render_inode<W: Write>(
     Ok(())
 }
 
+/// Emit every duplicate copy (originals excluded), each path terminated by
+/// a NUL byte — directly consumable by `xargs -0`. Paths are written as raw
+/// bytes, so non-UTF-8 names pass through unmangled. Group structure is not
+/// represented in this format; `--json` carries it.
 pub fn render_dupes_only<W: Write>(out: &mut W, result: &ScanResult) -> io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut emit = |p: &std::path::Path| -> io::Result<()> {
+        out.write_all(p.as_os_str().as_bytes())?;
+        out.write_all(b"\0")
+    };
     for group in &result.duplicates {
-        let copies: Vec<&FileEntry> = group.entries.iter().skip(1).collect();
-        if copies.is_empty() {
-            // Pathological: a group of size 1 shouldn't exist, but in that
-            // case we'd emit nothing for it.
-            continue;
-        }
         // Each copy contributes its canonical path plus any hardlink aliases.
-        let mut paths: Vec<&std::path::Path> = Vec::new();
-        for c in &copies {
-            paths.push(c.path.as_path());
+        for c in group.entries.iter().skip(1) {
+            emit(&c.path)?;
             for a in &c.aliases {
-                paths.push(a.as_path());
+                emit(a)?;
             }
         }
-        for (i, p) in paths.iter().enumerate() {
-            if i > 0 {
-                out.write_all(b"\0")?;
-            }
-            out.write_all(p.to_string_lossy().as_bytes())?;
-        }
-        out.write_all(b"\n")?;
     }
     Ok(())
 }

@@ -38,22 +38,22 @@ fn default_text_output_uses_tree_markers() {
 }
 
 #[test]
-fn dupes_only_emits_nul_separated() {
+fn dupes_only_emits_nul_terminated_paths() {
     let td = TempDir::new().unwrap();
     let root = td.path();
     let a = mkdir(root, "a");
     let b = mkdir(root, "b");
     let c = mkdir(root, "c");
     mkfile(&a, "x.txt", b"shared");
-    mkfile(&b, "x.txt", b"shared");
-    mkfile(&c, "x.txt", b"shared");
+    let copy_b = mkfile(&b, "x.txt", b"shared");
+    let copy_c = mkfile(&c, "x.txt", b"shared");
 
     let out = fifi().arg("--dupes-only").arg(root).assert().code(1);
     let stdout = out.get_output().stdout.clone();
-    // Two copies → exactly one NUL between them, then a newline.
-    let nul_count = stdout.iter().filter(|&&b| b == 0).count();
-    assert_eq!(nul_count, 1, "expected one NUL separator: {stdout:?}");
-    assert!(stdout.ends_with(b"\n"));
+    // Two copies, each terminated by a NUL — the stream must be directly
+    // consumable by `xargs -0`, so no other separators may appear.
+    let expected = format!("{}\0{}\0", copy_b.display(), copy_c.display());
+    assert_eq!(stdout, expected.as_bytes(), "stdout was {stdout:?}");
 }
 
 #[test]
@@ -308,7 +308,7 @@ fn hardlinks_show_alias_in_text_output() {
 }
 
 #[test]
-fn dupes_only_with_three_copies_two_nuls() {
+fn dupes_only_with_three_copies_three_nuls() {
     let td = TempDir::new().unwrap();
     let root = td.path();
     let a = mkdir(root, "a");
@@ -322,11 +322,42 @@ fn dupes_only_with_three_copies_two_nuls() {
 
     let out = fifi().arg("--dupes-only").arg(root).assert().code(1);
     let stdout = out.get_output().stdout.clone();
-    // Four files in one group → 3 copies → 2 NULs between them.
+    // Four files in one group → 3 copies → one terminating NUL each.
     assert_eq!(
         stdout.iter().filter(|&&b| b == 0).count(),
-        2,
+        3,
         "stdout was {stdout:?}"
+    );
+    assert!(stdout.ends_with(b"\0"), "stream must end on a NUL");
+}
+
+#[test]
+fn dupes_only_stream_is_pure_nul_across_groups() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    let a = mkdir(root, "a");
+    let b = mkdir(root, "b");
+    mkfile(&a, "f1", b"group one");
+    let copy1 = mkfile(&b, "f1", b"group one");
+    mkfile(&a, "f2", b"group two");
+    let copy2 = mkfile(&b, "f2", b"group two");
+
+    let out = fifi().arg("--dupes-only").arg(root).assert().code(1);
+    let stdout = out.get_output().stdout.clone();
+    // Two groups with one copy each. The group boundary must not introduce
+    // any separator besides the per-path NUL (a former newline here glued
+    // adjacent paths together under `xargs -0`).
+    assert!(!stdout.contains(&b'\n'), "no newlines allowed: {stdout:?}");
+    let paths: Vec<&[u8]> = stdout
+        .split(|&b| b == 0)
+        .filter(|s| !s.is_empty())
+        .collect();
+    assert_eq!(
+        paths,
+        vec![
+            copy1.display().to_string().as_bytes(),
+            copy2.display().to_string().as_bytes()
+        ]
     );
 }
 

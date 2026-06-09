@@ -2,6 +2,27 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com).
 
+## [Unreleased]
+
+### Fixed
+
+- **`--dupes-only`** output is now strictly NUL-delimited, as documented: every
+  path is terminated by a NUL byte, making the stream safe for `xargs -0`.
+  Previously a newline separated duplicate groups, which glued the last path of
+  one group to the first path of the next under `xargs -0`. Group boundaries are
+  no longer represented in this format — use `--json` if you need the grouping
+- **`--dupes-only`** writes paths as raw bytes; non-UTF-8 file names are no
+  longer mangled by lossy conversion
+- **`--algo bytewise`** no longer misattributes unreadable files: when the file
+  other entries were compared against could not be read, the readable entries
+  were reported as unreadable while the unreadable file itself was reported as
+  unique. Now exactly the file that failed to read lands in the unreadable list
+
+### Removed
+
+- **Library API**: `ScanError::Io`, `util::path_sort`, and `util::path_sort_paths`
+  were never used by fifi and have been dropped
+
 ## [0.4.0] — 2026-05-23
 
 ### Breaking changes

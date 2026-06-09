@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::model::FileEntry;
 
@@ -66,18 +66,6 @@ pub fn natural_cmp(a: &Path, b: &Path) -> Ordering {
     a_chunks.len().cmp(&b_chunks.len())
 }
 
-pub fn path_sort(entries: &[FileEntry]) -> Vec<FileEntry> {
-    let mut v = entries.to_vec();
-    v.sort_by(|a, b| natural_cmp(&a.path, &b.path));
-    v
-}
-
-pub fn path_sort_paths(paths: &[PathBuf]) -> Vec<PathBuf> {
-    let mut v = paths.to_vec();
-    v.sort_by(|a, b| natural_cmp(a, b));
-    v
-}
-
 /// Original-detection heuristic: oldest first, then fewer path components,
 /// then shorter path string, then lexicographic path order as a deterministic
 /// tiebreaker.
@@ -102,6 +90,7 @@ pub fn dup_sort(entries: &[FileEntry]) -> Vec<FileEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn human_size_unit_jumps() {

@@ -228,10 +228,6 @@ pub fn dedup_hardlinks(entries: Vec<FileEntry>) -> Vec<FileEntry> {
     out
 }
 
-pub(crate) fn _ignore_path<P: AsRef<Path>>(_p: P) {
-    // Reserved for future use: path-based exclude filters in step 2.
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

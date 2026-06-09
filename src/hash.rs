@@ -14,10 +14,11 @@ pub trait DigestHasher: Send + Sync {
     fn digest(&self, path: &Path) -> io::Result<DigestKey>;
     fn name(&self) -> &'static str;
 
-    /// `true` once an actual implementation exists. The placeholders
-    /// (`Sha256Hasher` in v1) override this to `false`; the pipeline
-    /// short-circuits on them with `UnsupportedAlgo` instead of treating
-    /// every file as unreadable.
+    /// Hook for hashers that may be unavailable at runtime (e.g. a library
+    /// consumer's `DigestHasher` gated on hardware support or an optional
+    /// dependency). The pipeline short-circuits on `false` with
+    /// `UnsupportedAlgo` instead of treating every file as unreadable.
+    /// The built-in hashers are always available.
     fn available(&self) -> bool {
         true
     }

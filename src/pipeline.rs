@@ -129,19 +129,27 @@ fn bucket_one_group_full(
     out
 }
 
+/// Which side of a [`files_equal`] comparison failed, so the caller can
+/// blame the right file: `Left` is the candidate entry, `Right` the
+/// subgroup representative.
+enum CompareError {
+    Left(io::Error),
+    Right(io::Error),
+}
+
 /// Compare two files byte-by-byte. Returns `Ok(true)` if every byte
 /// matches (and both files end together), `Ok(false)` on first
 /// mismatch or differing lengths. Lengths typically match — the caller
 /// has already size-grouped — but we defend against the TOCTOU window
 /// where a file was truncated between stat and open.
-fn files_equal(a: &Path, b: &Path) -> io::Result<bool> {
-    let mut fa = File::open(a)?;
-    let mut fb = File::open(b)?;
+fn files_equal(a: &Path, b: &Path) -> std::result::Result<bool, CompareError> {
+    let mut fa = File::open(a).map_err(CompareError::Left)?;
+    let mut fb = File::open(b).map_err(CompareError::Right)?;
     let mut buf_a = vec![0u8; BYTEWISE_BLOCK];
     let mut buf_b = vec![0u8; BYTEWISE_BLOCK];
     loop {
-        let na = fa.read(&mut buf_a)?;
-        let nb = fb.read(&mut buf_b)?;
+        let na = fa.read(&mut buf_a).map_err(CompareError::Left)?;
+        let nb = fb.read(&mut buf_b).map_err(CompareError::Right)?;
         if na != nb {
             return Ok(false);
         }
@@ -163,10 +171,15 @@ fn bucket_one_group_bytewise(
         return out;
     }
     // For each candidate entry, try to place it into an existing subgroup
-    // whose first member's content matches byte-for-byte. If no match,
+    // whose representative's content matches byte-for-byte. If no match,
     // start a new subgroup. The typical case after partial-xxh3 is "all
     // identical", so most entries land in the first subgroup with one
     // comparison each (O(N) reads, O(N) comparisons).
+    enum Placement {
+        Matched(usize),
+        Unreadable,
+        NewGroup,
+    }
     let mut subgroups: Vec<Vec<FileEntry>> = Vec::new();
     for entry in group {
         if let Some(p) = progress {
@@ -176,37 +189,44 @@ fn bucket_one_group_bytewise(
                 human_size(entry.size)
             ));
         }
-        let mut handled = false;
-        for sub in subgroups.iter_mut() {
-            match files_equal(&entry.path, &sub[0].path) {
-                Ok(true) => {
-                    sub.push(entry.clone());
-                    handled = true;
-                    break;
-                }
-                Ok(false) => continue,
-                Err(e) => {
-                    tracing::error!(
-                        "Unable to compare '{}' vs '{}': {}",
-                        entry.path.display(),
-                        sub[0].path.display(),
-                        e
-                    );
-                    out.unreadable.push(entry.clone());
-                    handled = true;
-                    break;
+        let mut placement = Placement::NewGroup;
+        'subgroups: for (idx, sub) in subgroups.iter_mut().enumerate() {
+            // A representative can turn unreadable mid-run (deleted or
+            // chmodded since it was placed). It then moves to `unreadable`
+            // and the next member takes over as representative; the entry
+            // is retried against it, so the error is blamed on the file
+            // that actually failed.
+            while let Some(rep_path) = sub.first().map(|r| r.path.clone()) {
+                match files_equal(&entry.path, &rep_path) {
+                    Ok(true) => {
+                        placement = Placement::Matched(idx);
+                        break 'subgroups;
+                    }
+                    Ok(false) => continue 'subgroups,
+                    Err(CompareError::Left(e)) => {
+                        tracing::error!("Unable to read '{}': {}", entry.path.display(), e);
+                        placement = Placement::Unreadable;
+                        break 'subgroups;
+                    }
+                    Err(CompareError::Right(e)) => {
+                        tracing::error!("Unable to read '{}': {}", rep_path.display(), e);
+                        let rep = sub.remove(0);
+                        out.unreadable.push(rep);
+                    }
                 }
             }
         }
-        if !handled {
-            subgroups.push(vec![entry]);
+        match placement {
+            Placement::Matched(idx) => subgroups[idx].push(entry),
+            Placement::Unreadable => out.unreadable.push(entry),
+            Placement::NewGroup => subgroups.push(vec![entry]),
         }
     }
     for sub in subgroups {
-        if sub.len() == 1 {
-            out.singletons.extend(sub);
-        } else {
-            out.multi.push(sub);
+        match sub.len() {
+            0 => {} // representative moved to unreadable, nobody joined
+            1 => out.singletons.extend(sub),
+            _ => out.multi.push(sub),
         }
     }
     out
@@ -398,6 +418,39 @@ mod tests {
         let out = bucket_one_group_bytewise(g, None);
         assert!(out.multi.is_empty());
         assert_eq!(out.singletons.len(), 2);
+    }
+
+    #[test]
+    fn bytewise_unreadable_representative_is_blamed_not_its_peers() {
+        // root bypasses chmod 000 read-protection, so this test can't
+        // produce an unreadable file there.
+        if nix::unistd::geteuid().is_root() {
+            return;
+        }
+        let td = tempfile::TempDir::new().unwrap();
+        let locked = td.path().join("locked");
+        let p2 = td.path().join("a");
+        let p3 = td.path().join("b");
+        std::fs::write(&locked, b"same content").unwrap();
+        std::fs::write(&p2, b"same content").unwrap();
+        std::fs::write(&p3, b"same content").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        // The unreadable file comes first, so it becomes the subgroup
+        // representative all later entries are compared against. It must
+        // end up in `unreadable` itself — not push its readable peers there.
+        let g = vec![
+            make_real_entry(locked.clone(), 12),
+            make_real_entry(p2, 12),
+            make_real_entry(p3, 12),
+        ];
+        let out = bucket_one_group_bytewise(g, None);
+        assert_eq!(out.unreadable.len(), 1, "exactly the locked file");
+        assert_eq!(out.unreadable[0].path, locked);
+        assert_eq!(out.multi.len(), 1, "the two readable peers stay a group");
+        assert_eq!(out.multi[0].len(), 2);
+        assert!(out.singletons.is_empty());
     }
 
     #[test]
