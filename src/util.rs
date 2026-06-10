@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::path::Path;
 
-use crate::model::FileEntry;
+use crate::model::{FileEntry, OrderBy};
 
 // Display-only rounding to one decimal — the f64 precision loss clippy
 // warns about is far below what the formatting shows anyway.
@@ -71,9 +71,34 @@ pub fn natural_cmp(a: &Path, b: &Path) -> Ordering {
     a_chunks.len().cmp(&b_chunks.len())
 }
 
-/// Original-detection heuristic: oldest first, then fewer path components,
-/// then shorter path string, then lexicographic path order as a deterministic
-/// tiebreaker.
+/// Order a group's members according to `order_by`. The first element of the
+/// returned vec is the "kept" entry (the original under `Age`, the
+/// earliest-root entry under `Source`); the rest are the prunable copies.
+#[must_use]
+pub fn order_group(entries: &[FileEntry], order_by: OrderBy) -> Vec<FileEntry> {
+    match order_by {
+        OrderBy::Age => dup_sort(entries),
+        OrderBy::Source => source_sort(entries),
+    }
+}
+
+/// Secondary, age/root-independent path heuristic, applied once the primary
+/// key (age or scan root) ties: fewer path components (shallower) first, then
+/// shorter path string, then lexicographic path order as a deterministic
+/// tiebreaker. Shared by `dup_sort` and `source_sort` so the "kept" entry is
+/// chosen the same way in both — the shallowest, shortest path, which is the
+/// intuitive "original" sitting above its tucked-away copies.
+fn path_heuristic_cmp(a: &FileEntry, b: &FileEntry) -> Ordering {
+    a.path
+        .components()
+        .count()
+        .cmp(&b.path.components().count())
+        .then_with(|| a.path.as_os_str().len().cmp(&b.path.as_os_str().len()))
+        .then_with(|| a.path.cmp(&b.path))
+}
+
+/// Original-detection heuristic: oldest first, then the shared path heuristic
+/// (shallowest/shortest) as the tiebreaker.
 #[must_use]
 pub fn dup_sort(entries: &[FileEntry]) -> Vec<FileEntry> {
     let mut v = entries.to_vec();
@@ -81,15 +106,21 @@ pub fn dup_sort(entries: &[FileEntry]) -> Vec<FileEntry> {
         a.age
             .partial_cmp(&b.age)
             .unwrap_or(Ordering::Equal)
-            .then_with(|| {
-                a.path
-                    .components()
-                    .count()
-                    .cmp(&b.path.components().count())
-            })
-            .then_with(|| a.path.as_os_str().len().cmp(&b.path.as_os_str().len()))
-            .then_with(|| a.path.cmp(&b.path))
+            .then_with(|| path_heuristic_cmp(a, b))
     });
+    v
+}
+
+/// Scan-root ordering: by the command-line path argument each file was found
+/// under (argument order), then the shared path heuristic. Age is deliberately
+/// ignored — what matters is *which tree* a file came from, not when it was
+/// created. Within a single root this degenerates to the path heuristic, so
+/// the shallowest path is kept as the original (not, say, a deeper one that
+/// happens to sort first by digits).
+#[must_use]
+pub fn source_sort(entries: &[FileEntry]) -> Vec<FileEntry> {
+    let mut v = entries.to_vec();
+    v.sort_by(|a, b| a.root.cmp(&b.root).then_with(|| path_heuristic_cmp(a, b)));
     v
 }
 
@@ -122,6 +153,10 @@ mod tests {
     }
 
     fn entry(path: &str, age: f64) -> FileEntry {
+        entry_rooted(path, age, 0)
+    }
+
+    fn entry_rooted(path: &str, age: f64, root: usize) -> FileEntry {
         FileEntry {
             path: PathBuf::from(path),
             aliases: Vec::new(),
@@ -130,6 +165,7 @@ mod tests {
             hash: None,
             dev: 0,
             ino: 0,
+            root,
         }
     }
 
@@ -158,5 +194,33 @@ mod tests {
         let v = vec![entry("a/xxxx", 100.0), entry("a/x", 100.0)];
         let sorted = dup_sort(&v);
         assert_eq!(sorted[0].path, PathBuf::from("a/x"));
+    }
+
+    #[test]
+    fn source_sort_orders_by_root_then_path_ignoring_age() {
+        // The root-1 file is older, but `source` ignores age: the root-0 file
+        // sorts first because its scan root was listed earlier.
+        let v = vec![
+            entry_rooted("b/copy", 10.0, 1),
+            entry_rooted("a/orig", 99.0, 0),
+        ];
+        let sorted = source_sort(&v);
+        assert_eq!(sorted[0].path, PathBuf::from("a/orig"));
+        assert_eq!(sorted[1].path, PathBuf::from("b/copy"));
+    }
+
+    #[test]
+    fn source_sort_within_one_root_keeps_shallowest_path() {
+        // Single root (everything root 0): the shallow file is kept as the
+        // original, the one tucked into a subdirectory is the copy — even
+        // though the deeper path would sort first under a naive digit-aware
+        // comparison (the reported `Downloads/11.12.25 PROD/...` surprise).
+        let v = vec![
+            entry_rooted("top/2024 backup/report.bos", 0.0, 0),
+            entry_rooted("top/report.bos", 0.0, 0),
+        ];
+        let sorted = source_sort(&v);
+        assert_eq!(sorted[0].path, PathBuf::from("top/report.bos"));
+        assert_eq!(sorted[1].path, PathBuf::from("top/2024 backup/report.bos"));
     }
 }

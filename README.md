@@ -68,6 +68,14 @@ the original from each group, `--print0` emits the flat NUL-delimited list:
 $ fifi --dupes-only --print0 /photos | tr '\0' '\n' | head
 ```
 
+Prune copies that landed in a backup tree, keeping the originals — `--order-by
+source` makes the file from the earlier argument (`/orig`) the kept one, so
+`--dupes-only` lists only the `/backup` copies:
+
+```
+$ fifi --order-by source --dupes-only --print0 /orig /backup | xargs -0 rm
+```
+
 ### Options
 
 | Option | Description |
@@ -79,6 +87,7 @@ $ fifi --dupes-only --print0 /photos | tr '\0' '\n' | head
 | `--unique` | Also include unique files in the output |
 | `--per-path` | Count one entry per path; don't merge files that share storage |
 | `--algo ALGO` | Full-hash algorithm: `xxh3` (default), `sha256`, `bytewise` |
+| `--order-by ORDER` | Group ordering: `age` (default, oldest = original) or `source` (by scan-root/argument order) |
 | `--json` | Emit results as JSON on stdout, with statistics |
 | `--dupes-only` | Drop the original from each group; print only the redundant copies |
 | `--print0`, `-0` | Emit a flat, NUL-delimited path list (for `xargs -0`) instead of the tree |

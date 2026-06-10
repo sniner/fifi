@@ -431,8 +431,13 @@ fn dupes_only_lone_copy_with_hardlink_alias_does_not_dangle() {
     // junction must stay flat (`───┬─`), only the alias branch keeps its `┬`.
     let td = TempDir::new().unwrap();
     let root = td.path();
-    let orig = mkdir(root, "orig");
-    let copy = mkdir(root, "copy");
+    // `aaa` sorts (and is created) before `zzz`, so the heuristic always picks
+    // aaa/file as the original and drops it — leaving the hardlinked zzz copy
+    // as the lone survivor. This keeps the test independent of birth-time
+    // granularity, which would otherwise let the lexicographic tiebreaker flip
+    // which entry survives.
+    let orig = mkdir(root, "aaa");
+    let copy = mkdir(root, "zzz");
     mkfile(&orig, "file", b"samecontent");
     let copy_file = mkfile(&copy, "file", b"samecontent");
     hardlink(&copy_file, &copy.join("file-link"));
@@ -483,6 +488,45 @@ fn print0_conflicts_with_json() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("cannot be used with"));
+}
+
+#[test]
+fn order_by_source_follows_argument_order() {
+    let td = TempDir::new().unwrap();
+    let left = mkdir(td.path(), "left");
+    let right = mkdir(td.path(), "right");
+    let lf = mkfile(&left, "f", b"dup");
+    let rf = mkfile(&right, "f", b"dup");
+
+    // `left` listed first → its file is kept (first tree line), `right`'s is
+    // the prunable copy.
+    let out = fifi()
+        .args(["--order-by", "source"])
+        .arg(&left)
+        .arg(&right)
+        .assert()
+        .code(1);
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    let first = stdout.lines().next().unwrap_or_default();
+    assert!(
+        first.ends_with(lf.display().to_string().as_str()),
+        "left should be kept first:\n{stdout}"
+    );
+
+    // Swap the argument order. Ages and paths are identical to the run above,
+    // so only the scan-root order can flip which file is kept.
+    let out = fifi()
+        .args(["--order-by", "source"])
+        .arg(&right)
+        .arg(&left)
+        .assert()
+        .code(1);
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    let first = stdout.lines().next().unwrap_or_default();
+    assert!(
+        first.ends_with(rf.display().to_string().as_str()),
+        "right should be kept first after the swap:\n{stdout}"
+    );
 }
 
 #[test]

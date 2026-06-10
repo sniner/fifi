@@ -18,6 +18,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com).
   tree, mirroring `find -print0`. On its own it lists every duplicate path
   including the originals; combine it with `--dupes-only` to list only the
   redundant copies
+- **`--order-by`** selects how members within a duplicate group are ordered:
+  `age` (default) keeps the oldest as the original, while `source` ignores age
+  and orders by the scan root (command-line path argument) each file was found
+  under. `fifi --order-by source --dupes-only --print0 orig backup` lists the
+  `backup` copies while keeping the `orig` ones — handy for pruning a copy tree
+  with `xargs -0 rm`
+- **Library API**: new `OrderBy` enum and `ScanOptions::order_by` field;
+  `FileEntry` gains a `root` field carrying the scan-root index a file was
+  found under
 
 ## [0.5.0] — 2026-06-09
 

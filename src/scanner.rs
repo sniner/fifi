@@ -8,7 +8,7 @@ use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
 
 use crate::hash::FullHashStrategy;
-use crate::model::FileEntry;
+use crate::model::{FileEntry, OrderBy};
 use crate::progress::ProgressSink;
 use crate::util::dup_sort;
 
@@ -26,6 +26,8 @@ pub struct ScanOptions {
     /// unbounded.
     pub depth: Option<usize>,
     pub algo: FullHashStrategy,
+    /// How to order members within each duplicate group.
+    pub order_by: OrderBy,
     pub progress: Option<Arc<dyn ProgressSink>>,
 }
 
@@ -39,12 +41,13 @@ impl ScanOptions {
             per_path: false,
             depth: None,
             algo,
+            order_by: OrderBy::default(),
             progress: None,
         }
     }
 }
 
-fn entry_from_metadata(path: PathBuf, meta: &fs::Metadata) -> FileEntry {
+fn entry_from_metadata(path: PathBuf, meta: &fs::Metadata, root: usize) -> FileEntry {
     FileEntry {
         path,
         aliases: Vec::new(),
@@ -53,6 +56,7 @@ fn entry_from_metadata(path: PathBuf, meta: &fs::Metadata) -> FileEntry {
         hash: None,
         dev: meta.dev(),
         ino: meta.ino(),
+        root,
     }
 }
 
@@ -97,6 +101,7 @@ pub struct WalkResult {
 
 fn walk_path(
     root: &Path,
+    root_idx: usize,
     out: &mut WalkResult,
     progress: Option<&dyn ProgressSink>,
     opts: &ScanOptions,
@@ -114,7 +119,7 @@ fn walk_path(
 
     if meta.is_file() {
         out.files
-            .push(entry_from_metadata(root.to_path_buf(), &meta));
+            .push(entry_from_metadata(root.to_path_buf(), &meta, root_idx));
         if let Some(p) = progress {
             p.tick(&format!("Scanned {} file(s) so far...", out.files.len()));
         }
@@ -185,8 +190,11 @@ fn walk_path(
                 continue;
             }
         };
-        out.files
-            .push(entry_from_metadata(entry.path().to_path_buf(), &m));
+        out.files.push(entry_from_metadata(
+            entry.path().to_path_buf(),
+            &m,
+            root_idx,
+        ));
         if let Some(p) = progress {
             p.tick(&format!("Scanned {} file(s) so far...", out.files.len()));
         }
@@ -204,8 +212,12 @@ pub fn walk_paths(roots: &[PathBuf], opts: &ScanOptions) -> WalkResult {
     // file as its own duplicate under --per-path. Nested roots (one inside
     // another) stay legitimate — with --depth the outer walk may not reach
     // the inner root at all — so they only get a warning.
+    // `.enumerate()` over the original argument list: the index is the file's
+    // scan-root identity for `OrderBy::Source`. Skipped (duplicate) roots
+    // leave gaps, but the surviving roots keep their command-line position, so
+    // relative order is preserved.
     let mut seen: Vec<PathBuf> = Vec::new();
-    for root in roots {
+    for (root_idx, root) in roots.iter().enumerate() {
         let canon = fs::canonicalize(root).unwrap_or_else(|_| root.clone());
         if seen.contains(&canon) {
             tracing::warn!("Skipping duplicate root '{}'", root.display());
@@ -223,7 +235,7 @@ pub fn walk_paths(roots: &[PathBuf], opts: &ScanOptions) -> WalkResult {
             );
         }
         seen.push(canon);
-        walk_path(root, &mut out, progress, opts);
+        walk_path(root, root_idx, &mut out, progress, opts);
     }
 
     out
@@ -301,6 +313,7 @@ mod tests {
             hash: None,
             dev,
             ino,
+            root: 0,
         }
     }
 

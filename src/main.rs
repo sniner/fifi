@@ -77,6 +77,7 @@ fn run(cli: &Cli, mode: OutputMode) -> anyhow::Result<bool> {
     opts.one_file_system = cli.one_file_system;
     opts.per_path = cli.per_path;
     opts.depth = cli.depth;
+    opts.order_by = cli.order_by.into_order_by();
     if cli.verbose >= 1 {
         opts.progress = Some(Arc::new(TracingProgress::new()));
     }

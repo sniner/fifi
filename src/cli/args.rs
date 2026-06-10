@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{ArgAction, Parser, ValueEnum};
 
-use fifi::FullHashStrategy;
+use fifi::{FullHashStrategy, OrderBy};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 #[clap(rename_all = "lowercase")]
@@ -18,6 +18,22 @@ impl AlgoArg {
             AlgoArg::Xxh3 => FullHashStrategy::xxh3(),
             AlgoArg::Sha256 => FullHashStrategy::sha256(),
             AlgoArg::Bytewise => FullHashStrategy::Bytewise,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+#[clap(rename_all = "lowercase")]
+pub enum OrderByArg {
+    Age,
+    Source,
+}
+
+impl OrderByArg {
+    pub fn into_order_by(self) -> OrderBy {
+        match self {
+            OrderByArg::Age => OrderBy::Age,
+            OrderByArg::Source => OrderBy::Source,
         }
     }
 }
@@ -86,6 +102,17 @@ pub struct Cli {
     /// xxh3 regardless of this setting; only the full pass is configurable.
     #[arg(long, value_enum, default_value_t = AlgoArg::Xxh3)]
     pub algo: AlgoArg,
+
+    /// Order within each duplicate group
+    ///
+    /// `age` (default) lists the oldest file first — the presumed "original",
+    /// the one `--dupes-only` keeps. `source` ignores age and orders members
+    /// by the scan root (the command-line path argument) they were found
+    /// under, in argument order, then by path (shallowest first). For
+    /// `fifi orig backup` that keeps the `orig` copy and lists the `backup`
+    /// one as the prunable duplicate.
+    #[arg(long = "order-by", value_enum, default_value_t = OrderByArg::Age)]
+    pub order_by: OrderByArg,
 
     /// Increase verbosity (-v info, -vv debug, -vvv trace).
     #[arg(short, long, action = ArgAction::Count)]

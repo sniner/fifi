@@ -23,11 +23,33 @@ pub struct FileEntry {
     pub dev: u64,
     #[serde(skip)]
     pub ino: u64,
+
+    /// Index of the scan root (command-line path argument, in argument order)
+    /// this file was found under. Drives `OrderBy::Source`. For a merged
+    /// hardlink family it is the canonical entry's root; the aliases' roots
+    /// are not tracked separately.
+    #[serde(skip)]
+    pub root: usize,
 }
 
 #[derive(Debug, Clone)]
 pub struct DuplicateGroup {
     pub entries: Vec<FileEntry>,
+}
+
+/// How to order the members within a duplicate group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OrderBy {
+    /// Oldest first — the original-detection heuristic. The first member is
+    /// the presumed "original", the one `--dupes-only` keeps.
+    #[default]
+    Age,
+    /// By the scan root (command-line path argument) each file was found
+    /// under, in argument order, then by path (shallowest first). The first
+    /// member is the one from the earliest-listed path — for `fifi orig
+    /// backup`, that keeps the `orig` copy and prunes the `backup` one. Within
+    /// a single root this degenerates to the path heuristic.
+    Source,
 }
 
 #[derive(Debug, Clone, Default)]

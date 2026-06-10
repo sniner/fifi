@@ -14,7 +14,7 @@ const BYTEWISE_BLOCK: usize = 1 << 20;
 use crate::model::{DuplicateGroup, FileEntry, ScanResult};
 use crate::progress::ProgressSink;
 use crate::scanner::ScanOptions;
-use crate::util::{dup_sort, human_size, natural_cmp};
+use crate::util::{human_size, natural_cmp, order_group};
 
 struct BucketedGroup {
     multi: Vec<Vec<FileEntry>>,
@@ -327,15 +327,16 @@ pub fn run_pipeline(files: Vec<FileEntry>, opts: &ScanOptions) -> Result<ScanRes
 
     // Establish deterministic order in the result so callers (lib users
     // and renderers alike) see the same output across runs:
-    //   - within each duplicate group, entries are pre-sorted by the
-    //     original-detection heuristic (canonical first);
-    //   - groups themselves are ordered by their canonical entry's path;
+    //   - within each duplicate group, entries are ordered by `opts.order_by`
+    //     (age heuristic by default, scan-root order under `--order-by source`),
+    //     kept entry first;
+    //   - groups themselves are ordered by their first entry's path;
     //   - unique and unreadable are ordered by natural path order.
     let mut duplicates: Vec<DuplicateGroup> = full
         .multi
         .into_iter()
         .map(|entries| DuplicateGroup {
-            entries: dup_sort(&entries),
+            entries: order_group(&entries, opts.order_by),
         })
         .collect();
     duplicates.sort_by(|a, b| natural_cmp(&a.entries[0].path, &b.entries[0].path));
@@ -366,6 +367,7 @@ mod tests {
             hash: None,
             dev: 0,
             ino: 0,
+            root: 0,
         }
     }
 
@@ -407,6 +409,7 @@ mod tests {
             hash: None,
             dev: 0,
             ino: 0,
+            root: 0,
         }
     }
 
