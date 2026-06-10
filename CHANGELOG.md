@@ -2,6 +2,23 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com).
 
+## [Unreleased]
+
+### Breaking changes
+
+- **`--dupes-only`** is no longer a NUL-delimited output format. It is now a
+  selection modifier that drops the original from each duplicate group and
+  prints the remaining copies in the usual tree layout. To get the previous
+  NUL-delimited stream for `xargs -0`, add `--print0`:
+  `fifi --dupes-only --print0 …`
+
+### Added
+
+- **`--print0`** (`-0`) emits a flat, NUL-delimited path list instead of the
+  tree, mirroring `find -print0`. On its own it lists every duplicate path
+  including the originals; combine it with `--dupes-only` to list only the
+  redundant copies
+
 ## [0.5.0] — 2026-06-09
 
 ### Added

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{ArgAction, ArgGroup, Parser, ValueEnum};
+use clap::{ArgAction, Parser, ValueEnum};
 
 use fifi::FullHashStrategy;
 
@@ -28,16 +28,14 @@ impl AlgoArg {
     version,
     about = "Find identical files in subdirectories."
 )]
-// `--json` and `--dupes-only` are the two primary output formats — pick
-// one or neither (default is the tree-style text). `--summary` is a scope
-// modifier: alone it shrinks the text output to a single line; combined
-// with `--json` it shrinks the JSON output to just the statistics block.
-// `--summary` with `--dupes-only` makes no sense, so we conflict them.
-#[command(group(
-    ArgGroup::new("primary_output")
-        .args(["json", "dupes_only"])
-        .multiple(false)
-))]
+// Output is two orthogonal axes. The *format* is the tree-style text
+// (default), `--print0` (a flat NUL-delimited path list), `--json`, or
+// `--summary`; these are mutually exclusive — except `--json --summary`,
+// which means "stats-only JSON". `--dupes-only` is a *selection* modifier
+// that drops the original from each group; it composes with the text and
+// `--print0` formats. `--print0`/`--dupes-only` make no sense with `--json`
+// or `--summary`, so we conflict them there (see the `conflicts_with_all`
+// on each).
 // One bool per independent CLI flag — that's what a flag struct is.
 #[allow(clippy::struct_excessive_bools)]
 pub struct Cli {
@@ -101,33 +99,49 @@ pub struct Cli {
     #[arg(long)]
     pub json: bool,
 
-    /// Print only duplicate copies (originals excluded), NUL-delimited.
-    #[arg(long = "dupes-only")]
+    /// Drop the original from each group; print only the redundant copies
+    ///
+    /// A selection modifier, not a format: it removes the first member (the
+    /// "original") of every duplicate group, leaving just the copies in the
+    /// usual tree layout. Combine with `-0`/`--print0` for a flat
+    /// NUL-delimited list — the canonical `… | xargs -0 rm` form.
+    #[arg(long = "dupes-only", conflicts_with_all = ["json", "summary"])]
     pub dupes_only: bool,
+
+    /// Emit a flat, NUL-delimited path list instead of the tree
+    ///
+    /// A pure format flag (the name mirrors `find -print0`): every path is
+    /// terminated by a NUL byte, safe for `xargs -0`. On its own it lists
+    /// every duplicate path including the originals; pair it with
+    /// `--dupes-only` to list only the copies.
+    #[arg(long = "print0", short = '0', conflicts_with_all = ["json", "summary"])]
+    pub print0: bool,
 
     /// Print only the summary line
     ///
     /// Combine with `--json` to emit a stats-only JSON document
     /// (`{"statistics": {...}}`) instead of the one-line text summary.
-    #[arg(long, conflicts_with = "dupes_only")]
+    #[arg(long)]
     pub summary: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputMode {
     Text,
+    Print0,
     Json,
-    DupesOnly,
     Summary,
     SummaryJson,
 }
 
 impl Cli {
     pub fn output_mode(&self) -> OutputMode {
-        match (self.json, self.dupes_only, self.summary) {
+        // `--print0` conflicts with both `--json` and `--summary`, so the
+        // `(false, true, _)` arm can only fire with both of those false.
+        match (self.json, self.print0, self.summary) {
             (true, _, true) => OutputMode::SummaryJson,
             (true, _, false) => OutputMode::Json,
-            (false, true, _) => OutputMode::DupesOnly,
+            (false, true, _) => OutputMode::Print0,
             (false, false, true) => OutputMode::Summary,
             (false, false, false) => OutputMode::Text,
         }

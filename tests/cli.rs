@@ -48,7 +48,11 @@ fn dupes_only_emits_nul_terminated_paths() {
     let copy_b = mkfile(&b, "x.txt", b"shared");
     let copy_c = mkfile(&c, "x.txt", b"shared");
 
-    let out = fifi().arg("--dupes-only").arg(root).assert().code(1);
+    let out = fifi()
+        .args(["--dupes-only", "--print0"])
+        .arg(root)
+        .assert()
+        .code(1);
     let stdout = out.get_output().stdout.clone();
     // Two copies, each terminated by a NUL — the stream must be directly
     // consumable by `xargs -0`, so no other separators may appear.
@@ -322,7 +326,11 @@ fn dupes_only_with_three_copies_three_nuls() {
     mkfile(&c, "f", b"shared");
     mkfile(&d, "f", b"shared");
 
-    let out = fifi().arg("--dupes-only").arg(root).assert().code(1);
+    let out = fifi()
+        .args(["--dupes-only", "--print0"])
+        .arg(root)
+        .assert()
+        .code(1);
     let stdout = out.get_output().stdout.clone();
     // Four files in one group → 3 copies → one terminating NUL each.
     assert_eq!(
@@ -344,7 +352,11 @@ fn dupes_only_stream_is_pure_nul_across_groups() {
     mkfile(&a, "f2", b"group two");
     let copy2 = mkfile(&b, "f2", b"group two");
 
-    let out = fifi().arg("--dupes-only").arg(root).assert().code(1);
+    let out = fifi()
+        .args(["--dupes-only", "--print0"])
+        .arg(root)
+        .assert()
+        .code(1);
     let stdout = out.get_output().stdout.clone();
     // Two groups with one copy each. The group boundary must not introduce
     // any separator besides the per-path NUL (a former newline here glued
@@ -361,6 +373,116 @@ fn dupes_only_stream_is_pure_nul_across_groups() {
             copy2.display().to_string().as_bytes()
         ]
     );
+}
+
+#[test]
+fn dupes_only_text_drops_original_keeps_tree() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    let a = mkdir(root, "a");
+    let b = mkdir(root, "b");
+    let c = mkdir(root, "c");
+    // `a` is created first (oldest) and sorts first lexicographically, so it
+    // is the original the heuristic picks — and the one `--dupes-only` drops.
+    let orig = mkfile(&a, "x.txt", b"shared");
+    let copy_b = mkfile(&b, "x.txt", b"shared");
+    let copy_c = mkfile(&c, "x.txt", b"shared");
+
+    let out = fifi().arg("--dupes-only").arg(root).assert().code(1);
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    assert!(
+        !stdout.contains(orig.display().to_string().as_str()),
+        "original must be dropped:\n{stdout}"
+    );
+    assert!(stdout.contains(copy_b.display().to_string().as_str()));
+    assert!(stdout.contains(copy_c.display().to_string().as_str()));
+    // Still the tree representation, just without the original: the first
+    // remaining copy carries the group's left-edge cue.
+    assert!(
+        stdout.starts_with("─┬─── "),
+        "expected tree markers:\n{stdout}"
+    );
+}
+
+#[test]
+fn dupes_only_single_copy_uses_flat_marker() {
+    // Dropping the original from a two-file group leaves one lone copy. It
+    // must not render with the branching `─┬───` marker, whose `┬` would
+    // dangle into empty space — it gets the flat `─────` marker instead.
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    let a = mkdir(root, "a");
+    let b = mkdir(root, "b");
+    mkfile(&a, "f", b"x");
+    let copy = mkfile(&b, "f", b"x");
+
+    let out = fifi().arg("--dupes-only").arg(root).assert().code(1);
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    assert_eq!(
+        stdout,
+        format!("───── {}\n", copy.display()),
+        "lone copy must use the flat marker:\n{stdout}"
+    );
+}
+
+#[test]
+fn dupes_only_lone_copy_with_hardlink_alias_does_not_dangle() {
+    // A single remaining copy that carries a hardlink alias: the inode-level
+    // junction must stay flat (`───┬─`), only the alias branch keeps its `┬`.
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    let orig = mkdir(root, "orig");
+    let copy = mkdir(root, "copy");
+    mkfile(&orig, "file", b"samecontent");
+    let copy_file = mkfile(&copy, "file", b"samecontent");
+    hardlink(&copy_file, &copy.join("file-link"));
+
+    let out = fifi().arg("--dupes-only").arg(root).assert().code(1);
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    let first_line = stdout.lines().next().unwrap_or_default();
+    assert!(
+        first_line.starts_with("───┬─ "),
+        "lone copy with alias must use the flat inode junction:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("   └─ "),
+        "the hardlink alias must hang from the alias branch:\n{stdout}"
+    );
+}
+
+#[test]
+fn print0_alone_includes_originals() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    let a = mkdir(root, "a");
+    let b = mkdir(root, "b");
+    mkfile(&a, "x.txt", b"shared");
+    mkfile(&b, "x.txt", b"shared");
+
+    let out = fifi().arg("--print0").arg(root).assert().code(1);
+    let stdout = out.get_output().stdout.clone();
+    // Without --dupes-only the flat list carries every duplicate path,
+    // original included → both files of the single group.
+    assert!(!stdout.contains(&b'\n'), "no newlines allowed: {stdout:?}");
+    let paths: Vec<&[u8]> = stdout
+        .split(|&b| b == 0)
+        .filter(|s| !s.is_empty())
+        .collect();
+    assert_eq!(paths.len(), 2, "stdout was {stdout:?}");
+}
+
+#[test]
+fn print0_conflicts_with_json() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    mkfile(root, "a", b"x");
+
+    fifi()
+        .args(["--print0", "--json"])
+        .arg(root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"));
 }
 
 #[test]

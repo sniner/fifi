@@ -61,10 +61,11 @@ $ fifi --json /photos | jq '.statistics.duplicate_bytes'
 12856293
 ```
 
-NUL-delimited copies for `xargs` deletion (be careful):
+NUL-delimited copies for `xargs` deletion (be careful) — `--dupes-only` drops
+the original from each group, `--print0` emits the flat NUL-delimited list:
 
 ```
-$ fifi --dupes-only /photos | tr '\0' '\n' | head
+$ fifi --dupes-only --print0 /photos | tr '\0' '\n' | head
 ```
 
 ### Options
@@ -79,7 +80,8 @@ $ fifi --dupes-only /photos | tr '\0' '\n' | head
 | `--per-path` | Count one entry per path; don't merge files that share storage |
 | `--algo ALGO` | Full-hash algorithm: `xxh3` (default), `sha256`, `bytewise` |
 | `--json` | Emit results as JSON on stdout, with statistics |
-| `--dupes-only` | Print only duplicate copies, NUL-delimited |
+| `--dupes-only` | Drop the original from each group; print only the redundant copies |
+| `--print0`, `-0` | Emit a flat, NUL-delimited path list (for `xargs -0`) instead of the tree |
 | `--summary` | Print only the final summary line |
 | `-v`, `-vv`, `-vvv` | Increase log verbosity (info / debug / trace) |
 | `-q`, `--quiet` | Suppress all but error output |

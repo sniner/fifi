@@ -9,12 +9,17 @@ enum InodePos {
     First,
     Middle,
     Last,
+    /// The only inode in its group — no inode siblings above or below. Arises
+    /// when `--dupes-only` drops the original and a single copy remains.
+    Only,
 }
 
-// Six markers for the inode line, picked by (position among inodes, whether
-// hardlink aliases follow). The trailing `┬` makes the vertical to the first
-// alias visually continuous; `─` keeps the marker width fixed. The original
-// (`First`) starts with `─┬` so each group has a visible left-edge cue.
+// Markers for the inode line, picked by (position among inodes, whether
+// hardlink aliases follow). The inner `┬` makes the vertical to the first
+// alias visually continuous; `─` keeps the marker width fixed. `First` starts
+// with `─┬` so each group has a visible left-edge cue *and* a vertical down to
+// the next inode. `Only` has no inode below it, so its leading junction stays
+// flat (`───`) — only the alias branch keeps its `┬`.
 fn inode_marker(pos: InodePos, has_aliases: bool) -> &'static str {
     match (pos, has_aliases) {
         (InodePos::First, false) => "─┬─── ",
@@ -23,6 +28,8 @@ fn inode_marker(pos: InodePos, has_aliases: bool) -> &'static str {
         (InodePos::Middle, true) => " ├─┬─ ",
         (InodePos::Last, false) => " └─── ",
         (InodePos::Last, true) => " └─┬─ ",
+        (InodePos::Only, false) => "───── ",
+        (InodePos::Only, true) => "───┬─ ",
     }
 }
 
@@ -40,6 +47,9 @@ fn alias_marker(parent_last: bool, alias_last: bool) -> &'static str {
 
 pub struct RenderOptions {
     pub include_unique: bool,
+    /// Drop the original (first member) from each duplicate group, rendering
+    /// only the copies.
+    pub dupes_only: bool,
 }
 
 pub fn render_text<W: Write>(
@@ -64,19 +74,41 @@ pub fn render_text<W: Write>(
         if gi > 0 {
             writeln!(out)?;
         }
-        let (orig, copies) = group.entries.split_first().expect("group non-empty");
-        render_inode(out, orig, InodePos::First, false)?;
+        // `--dupes-only` hides the original (the first member); a duplicate
+        // group always has at least two entries, so the copies slice is
+        // never empty.
+        let entries = if opts.dupes_only {
+            &group.entries[1..]
+        } else {
+            &group.entries[..]
+        };
+        render_group(out, entries)?;
+    }
+    Ok(())
+}
 
-        let last_copy_idx = copies.len().saturating_sub(1);
-        for (i, f) in copies.iter().enumerate() {
-            let is_last_copy = i == last_copy_idx;
-            let pos = if is_last_copy {
-                InodePos::Last
-            } else {
-                InodePos::Middle
-            };
-            render_inode(out, f, pos, is_last_copy)?;
-        }
+// Render one tree group: the first entry carries the `─┬` left-edge cue, the
+// rest descend below it. A lone entry (a single copy left after
+// `--dupes-only` dropped the original) uses `Only` instead, so its inode-level
+// junction stays flat and nothing dangles into empty space.
+fn render_group<W: Write>(out: &mut W, entries: &[FileEntry]) -> io::Result<()> {
+    let (first, rest) = entries.split_first().expect("group non-empty");
+    if rest.is_empty() {
+        // `parent_last` true: no inode sibling follows, so aliases hang with
+        // the flush-left indent rather than a continuing vertical.
+        return render_inode(out, first, InodePos::Only, true);
+    }
+    render_inode(out, first, InodePos::First, false)?;
+
+    let last_idx = rest.len() - 1;
+    for (i, f) in rest.iter().enumerate() {
+        let is_last = i == last_idx;
+        let pos = if is_last {
+            InodePos::Last
+        } else {
+            InodePos::Middle
+        };
+        render_inode(out, f, pos, is_last)?;
     }
     Ok(())
 }
@@ -107,19 +139,28 @@ fn render_inode<W: Write>(
     Ok(())
 }
 
-/// Emit every duplicate copy (originals excluded), each path terminated by
-/// a NUL byte — directly consumable by `xargs -0`. Paths are written as raw
-/// bytes, so non-UTF-8 names pass through unmangled. Group structure is not
-/// represented in this format; `--json` carries it.
-pub fn render_dupes_only<W: Write>(out: &mut W, result: &ScanResult) -> io::Result<()> {
+/// Emit duplicate paths as a flat NUL-delimited stream — directly consumable
+/// by `xargs -0`. Paths are written as raw bytes, so non-UTF-8 names pass
+/// through unmangled. Group structure is not represented in this format;
+/// `--json` carries it.
+///
+/// With `dupes_only`, the original (first member) of each group is skipped so
+/// only the redundant copies are emitted; otherwise every duplicate path is
+/// emitted, originals included.
+pub fn render_print0<W: Write>(
+    out: &mut W,
+    result: &ScanResult,
+    dupes_only: bool,
+) -> io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
     let mut emit = |p: &std::path::Path| -> io::Result<()> {
         out.write_all(p.as_os_str().as_bytes())?;
         out.write_all(b"\0")
     };
+    let skip = usize::from(dupes_only);
     for group in &result.duplicates {
-        // Each copy contributes its canonical path plus any hardlink aliases.
-        for c in group.entries.iter().skip(1) {
+        // Each entry contributes its canonical path plus any hardlink aliases.
+        for c in group.entries.iter().skip(skip) {
             emit(&c.path)?;
             for a in &c.aliases {
                 emit(a)?;

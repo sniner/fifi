@@ -10,7 +10,7 @@ mod cli;
 
 use cli::args::{Cli, OutputMode};
 use cli::output::{StatsSnapshot, emit_json, emit_json_error, emit_json_summary};
-use cli::render::{RenderOptions, collect_summary, render_dupes_only, render_text, summary_line};
+use cli::render::{RenderOptions, collect_summary, render_print0, render_text, summary_line};
 
 use fifi::{ScanOptions, TracingProgress, scan};
 
@@ -95,6 +95,7 @@ fn run(cli: &Cli, mode: OutputMode) -> anyhow::Result<bool> {
                 &result,
                 &RenderOptions {
                     include_unique: cli.unique,
+                    dupes_only: cli.dupes_only,
                 },
             )?;
             if cli.verbose >= 1 {
@@ -123,8 +124,8 @@ fn run(cli: &Cli, mode: OutputMode) -> anyhow::Result<bool> {
                 },
             )?;
         }
-        OutputMode::DupesOnly => {
-            render_dupes_only(&mut stdout, &result)?;
+        OutputMode::Print0 => {
+            render_print0(&mut stdout, &result, cli.dupes_only)?;
         }
         OutputMode::Summary => {
             let stats = collect_summary(&result, elapsed);
