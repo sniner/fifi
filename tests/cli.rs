@@ -91,25 +91,82 @@ fn json_output_has_expected_shape() {
 }
 
 #[test]
-fn json_includes_unique_only_when_flagged() {
+fn json_unique_flag_switches_subject() {
     let td = TempDir::new().unwrap();
     let root = td.path();
-    mkfile(root, "a.txt", b"unique-a");
-    mkfile(root, "b.txt", b"unique-b");
+    let a = mkdir(root, "a");
+    let b = mkdir(root, "b");
+    mkfile(&a, "dup", b"shared");
+    mkfile(&b, "dup", b"shared");
+    mkfile(root, "solo", b"only-once");
 
-    // No duplicates means exit code 0 — orthogonal to what we're testing.
-    // Just inspect stdout.
-    let out = fifi().arg("--json").arg(root).assert().code(0);
+    // Without --unique: the duplicates array is present, no unique array.
+    let out = fifi().arg("--json").arg(root).assert().code(1);
     let json: serde_json::Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
-    assert!(json.get("unique").is_none());
+    assert!(json.get("duplicates").is_some(), "duplicates expected");
+    assert!(
+        json.get("unique").is_none(),
+        "unique must be absent without the flag"
+    );
 
+    // With --unique: the subject flips — unique present, duplicates omitted.
+    // The statistics block still describes the whole scan.
     let out = fifi()
         .args(["--json", "--unique"])
         .arg(root)
         .assert()
-        .code(0);
+        .code(1);
     let json: serde_json::Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
-    assert_eq!(json.get("unique").unwrap().as_array().unwrap().len(), 2);
+    assert!(
+        json.get("duplicates").is_none(),
+        "duplicates must be omitted under --unique"
+    );
+    assert_eq!(json.get("unique").unwrap().as_array().unwrap().len(), 1);
+    assert_eq!(
+        json["statistics"]["duplicate_groups"].as_u64().unwrap(),
+        1,
+        "stats still report the duplicate group"
+    );
+}
+
+#[test]
+fn unique_text_lists_only_uniques_not_the_tree() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    let a = mkdir(root, "a");
+    let b = mkdir(root, "b");
+    let dup_a = mkfile(&a, "dup", b"shared");
+    mkfile(&b, "dup", b"shared");
+    let solo = mkfile(root, "solo", b"only-once");
+
+    let out = fifi().arg("--unique").arg(root).assert().code(1);
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    assert!(
+        stdout.contains(solo.display().to_string().as_str()),
+        "the unique file must be listed:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains(dup_a.display().to_string().as_str()),
+        "duplicate-group files must not appear:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains('┬'),
+        "the unique listing has no tree markers:\n{stdout}"
+    );
+}
+
+#[test]
+fn unique_conflicts_with_dupes_only() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    mkfile(root, "a", b"x");
+
+    fifi()
+        .args(["--unique", "--dupes-only"])
+        .arg(root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"));
 }
 
 #[test]

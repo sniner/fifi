@@ -84,7 +84,7 @@ $ fifi --order-by source --dupes-only --print0 /orig /backup | xargs -0 rm
 | `--hidden` | Include hidden files and directories (ignored by default) |
 | `--one-file-system` | Do not enter mounted file systems |
 | `--depth N` | Limit subdirectory descent (`0` = no recursion, unbounded by default) |
-| `--unique` | Also include unique files in the output |
+| `--unique` | List unique files (no content match anywhere) instead of duplicates |
 | `--per-path` | Count one entry per path; don't merge files that share storage |
 | `--algo ALGO` | Full-hash algorithm: `xxh3` (default), `sha256`, `bytewise` |
 | `--order-by ORDER` | Group ordering: `age` (default, oldest = original) or `source` (by scan-root/argument order) |

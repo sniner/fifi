@@ -79,8 +79,14 @@ pub struct Cli {
     #[arg(long, value_name = "N")]
     pub depth: Option<usize>,
 
-    /// Also include unique files in the output.
-    #[arg(long)]
+    /// List unique files instead of duplicates
+    ///
+    /// Switches the subject of the output: instead of the duplicate groups,
+    /// fifi lists the files whose content has no match anywhere across the
+    /// scanned paths. Works with the text, `-0`/`--print0`, and `--json`
+    /// formats. Mutually exclusive with `--dupes-only`, which selects the
+    /// opposite (the redundant copies).
+    #[arg(long, conflicts_with_all = ["dupes_only", "summary"])]
     pub unique: bool,
 
     /// Count one entry per path; don't merge hardlink families

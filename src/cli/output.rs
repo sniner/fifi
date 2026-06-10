@@ -45,7 +45,11 @@ struct JsonStats {
 #[derive(Serialize)]
 struct JsonResult<'a> {
     scanned_paths: Vec<&'a Path>,
-    duplicates: Vec<JsonGroup<'a>>,
+    // Under `--unique` the document is about the unique files, so the
+    // `duplicates` array is omitted entirely (the statistics block still
+    // reports the duplicate counts for the whole scan).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    duplicates: Option<Vec<JsonGroup<'a>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     unique: Option<Vec<JsonFileFull<'a>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -152,26 +156,33 @@ pub fn emit_json<W: Write>(
     mut out: W,
     scanned_paths: &[PathBuf],
     result: &ScanResult,
-    include_unique: bool,
+    unique_only: bool,
     algo_name: &str,
     snapshot: &StatsSnapshot,
 ) -> io::Result<()> {
     // ScanResult is already deterministically sorted by the pipeline, so
-    // the renderer just walks it.
-    let dup_groups: Vec<JsonGroup> = result
-        .duplicates
-        .iter()
-        .map(|g| {
-            let first = g.entries.first().expect("duplicate group is never empty");
-            JsonGroup {
-                hash: first.hash.as_ref().map(|h| format!("{algo_name}:{h}")),
-                size: first.size,
-                files: g.entries.iter().map(make_file).collect(),
-            }
-        })
-        .collect();
+    // the renderer just walks it. `--unique` flips the subject: emit the
+    // unique files and drop the duplicates array (and vice versa).
+    let dup_groups = if unique_only {
+        None
+    } else {
+        Some(
+            result
+                .duplicates
+                .iter()
+                .map(|g| {
+                    let first = g.entries.first().expect("duplicate group is never empty");
+                    JsonGroup {
+                        hash: first.hash.as_ref().map(|h| format!("{algo_name}:{h}")),
+                        size: first.size,
+                        files: g.entries.iter().map(make_file).collect(),
+                    }
+                })
+                .collect(),
+        )
+    };
 
-    let unique_block = if include_unique && !result.unique.is_empty() {
+    let unique_block = if unique_only {
         Some(result.unique.iter().map(make_file_full).collect())
     } else {
         None

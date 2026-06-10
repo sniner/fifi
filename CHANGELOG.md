@@ -6,6 +6,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com).
 
 ### Breaking changes
 
+- **`--unique`** now *replaces* the output instead of adding to it: it lists
+  the unique files (those with no content match anywhere across the scanned
+  paths) instead of the duplicate groups. It works with the text, `--print0`,
+  and `--json` formats, and conflicts with `--dupes-only` (the opposite
+  selection) and `--summary`. In `--json` the document now omits the
+  `duplicates` array under `--unique` (the `statistics` block still reports the
+  duplicate counts). Previously `--unique` appended a unique listing below the
+  duplicate tree
 - **`--dupes-only`** is no longer a NUL-delimited output format. It is now a
   selection modifier that drops the original from each duplicate group and
   prints the remaining copies in the usual tree layout. To get the previous

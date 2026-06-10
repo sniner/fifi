@@ -45,31 +45,11 @@ fn alias_marker(parent_last: bool, alias_last: bool) -> &'static str {
     }
 }
 
-pub struct RenderOptions {
-    pub include_unique: bool,
-    /// Drop the original (first member) from each duplicate group, rendering
-    /// only the copies.
-    pub dupes_only: bool,
-}
-
-pub fn render_text<W: Write>(
-    out: &mut W,
-    result: &ScanResult,
-    opts: &RenderOptions,
-) -> io::Result<()> {
-    // ScanResult is already sorted by pipeline::run_pipeline: groups by
-    // canonical path, entries within a group canonical-first, unique and
-    // unreadable by natural path order.
-    if opts.include_unique && !result.unique.is_empty() {
-        for f in &result.unique {
-            writeln!(out, "{}", f.path.display())?;
-            for alias in &f.aliases {
-                writeln!(out, "{UNIQUE_ALIAS}{}", alias.display())?;
-            }
-        }
-        writeln!(out)?;
-    }
-
+/// Render the duplicate groups as a tree. With `dupes_only`, the original
+/// (first member) of each group is dropped, leaving only the copies.
+pub fn render_text<W: Write>(out: &mut W, result: &ScanResult, dupes_only: bool) -> io::Result<()> {
+    // ScanResult is already sorted by pipeline::run_pipeline: groups by their
+    // first entry's path, members ordered per `--order-by`.
     for (gi, group) in result.duplicates.iter().enumerate() {
         if gi > 0 {
             writeln!(out)?;
@@ -77,12 +57,25 @@ pub fn render_text<W: Write>(
         // `--dupes-only` hides the original (the first member); a duplicate
         // group always has at least two entries, so the copies slice is
         // never empty.
-        let entries = if opts.dupes_only {
+        let entries = if dupes_only {
             &group.entries[1..]
         } else {
             &group.entries[..]
         };
         render_group(out, entries)?;
+    }
+    Ok(())
+}
+
+/// List the unique files (no content match anywhere), one path per line. A
+/// unique inode can still carry hardlink aliases — additional names for the
+/// same file — which are listed beneath it, marked with `=`.
+pub fn render_unique<W: Write>(out: &mut W, result: &ScanResult) -> io::Result<()> {
+    for f in &result.unique {
+        writeln!(out, "{}", f.path.display())?;
+        for alias in &f.aliases {
+            writeln!(out, "{UNIQUE_ALIAS}{}", alias.display())?;
+        }
     }
     Ok(())
 }
@@ -139,35 +132,47 @@ fn render_inode<W: Write>(
     Ok(())
 }
 
-/// Emit duplicate paths as a flat NUL-delimited stream — directly consumable
-/// by `xargs -0`. Paths are written as raw bytes, so non-UTF-8 names pass
-/// through unmangled. Group structure is not represented in this format;
-/// `--json` carries it.
-///
-/// With `dupes_only`, the original (first member) of each group is skipped so
-/// only the redundant copies are emitted; otherwise every duplicate path is
-/// emitted, originals included.
+/// Write each entry's canonical path plus its hardlink aliases as a flat
+/// NUL-delimited stream — directly consumable by `xargs -0`. Paths are written
+/// as raw bytes, so non-UTF-8 names pass through unmangled. Grouping is not
+/// represented in this format; `--json` carries it.
+fn emit_nul_paths<'a, W: Write>(
+    out: &mut W,
+    entries: impl Iterator<Item = &'a FileEntry>,
+) -> io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    for e in entries {
+        out.write_all(e.path.as_os_str().as_bytes())?;
+        out.write_all(b"\0")?;
+        for a in &e.aliases {
+            out.write_all(a.as_os_str().as_bytes())?;
+            out.write_all(b"\0")?;
+        }
+    }
+    Ok(())
+}
+
+/// NUL-delimited duplicate paths. With `dupes_only`, the original (first
+/// member) of each group is skipped so only the redundant copies are emitted;
+/// otherwise every duplicate path is emitted, originals included.
 pub fn render_print0<W: Write>(
     out: &mut W,
     result: &ScanResult,
     dupes_only: bool,
 ) -> io::Result<()> {
-    use std::os::unix::ffi::OsStrExt;
-    let mut emit = |p: &std::path::Path| -> io::Result<()> {
-        out.write_all(p.as_os_str().as_bytes())?;
-        out.write_all(b"\0")
-    };
     let skip = usize::from(dupes_only);
-    for group in &result.duplicates {
-        // Each entry contributes its canonical path plus any hardlink aliases.
-        for c in group.entries.iter().skip(skip) {
-            emit(&c.path)?;
-            for a in &c.aliases {
-                emit(a)?;
-            }
-        }
-    }
-    Ok(())
+    emit_nul_paths(
+        out,
+        result
+            .duplicates
+            .iter()
+            .flat_map(|g| g.entries.iter().skip(skip)),
+    )
+}
+
+/// NUL-delimited unique paths (no content match anywhere), aliases included.
+pub fn render_unique_print0<W: Write>(out: &mut W, result: &ScanResult) -> io::Result<()> {
+    emit_nul_paths(out, result.unique.iter())
 }
 
 pub struct SummaryStats {
