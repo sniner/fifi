@@ -238,6 +238,29 @@ fn exit_code_one_when_duplicates_found() {
 }
 
 #[test]
+fn no_path_argument_is_a_usage_error() {
+    // `path` is required; clap rejects an empty invocation with exit 2.
+    fifi()
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("required"));
+}
+
+#[test]
+fn unknown_algo_value_is_a_usage_error() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    mkfile(root, "a", b"x");
+
+    fifi()
+        .args(["--algo", "md5"])
+        .arg(root)
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("invalid value"));
+}
+
+#[test]
 fn exit_code_zero_when_no_duplicates() {
     let td = TempDir::new().unwrap();
     let root = td.path();
