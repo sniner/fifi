@@ -305,6 +305,79 @@ fn summary_alone_goes_to_stdout() {
 }
 
 #[test]
+fn min_size_excludes_smaller_files() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    // A small duplicate pair (under the threshold) and a large duplicate
+    // pair (over it). Only the large pair should survive --min-size.
+    mkfile(root, "small-a", b"tiny");
+    mkfile(root, "small-b", b"tiny");
+    let big = vec![b'x'; 2048];
+    mkfile(root, "big-a", &big);
+    mkfile(root, "big-b", &big);
+
+    let out = fifi()
+        .args(["--min-size", "1K", "--json"])
+        .arg(root)
+        .assert()
+        .code(1);
+    let json: serde_json::Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
+    let stats = json.get("statistics").unwrap();
+    // Only the two big files were scanned at all.
+    assert_eq!(stats.get("total_files").unwrap().as_u64().unwrap(), 2);
+    assert_eq!(stats.get("duplicate_groups").unwrap().as_u64().unwrap(), 1);
+}
+
+#[test]
+fn max_size_excludes_larger_files() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    mkfile(root, "small-a", b"tiny");
+    mkfile(root, "small-b", b"tiny");
+    let big = vec![b'x'; 2048];
+    mkfile(root, "big-a", &big);
+    mkfile(root, "big-b", &big);
+
+    let out = fifi()
+        .args(["--max-size", "1K", "--json"])
+        .arg(root)
+        .assert()
+        .code(1);
+    let json: serde_json::Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
+    let stats = json.get("statistics").unwrap();
+    assert_eq!(stats.get("total_files").unwrap().as_u64().unwrap(), 2);
+    assert_eq!(stats.get("duplicate_groups").unwrap().as_u64().unwrap(), 1);
+}
+
+#[test]
+fn min_size_greater_than_max_size_is_an_error() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    mkfile(root, "a", b"x");
+
+    fifi()
+        .args(["--min-size", "10M", "--max-size", "1M"])
+        .arg(root)
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("greater than"));
+}
+
+#[test]
+fn invalid_size_is_a_usage_error() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    mkfile(root, "a", b"x");
+
+    // A bad --min-size value is a clap value-parser failure → exit 2.
+    fifi()
+        .args(["--min-size", "notasize"])
+        .arg(root)
+        .assert()
+        .code(2);
+}
+
+#[test]
 fn summary_reports_reclaimable_bytes() {
     let td = TempDir::new().unwrap();
     let root = td.path();

@@ -19,6 +19,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com).
 
 ### Added
 
+- **`--min-size`** / **`--max-size`** filter the scan by file size, e.g.
+  `fifi --min-size 10M /media` to ignore everything below 10 MiB. SIZE is a
+  byte count with an optional binary unit (`512`, `64K`, `10M`, `1.5G`;
+  K/M/G/T/P are powers of 1024); both bounds are inclusive. Filtering happens
+  during the walk, so excluded files cost no hashing. `ScanOptions` gains
+  matching `min_size`/`max_size` fields
 - **Library API**: `ScanResult` and `WalkResult` gain a `missing_roots` field
   recording scan roots that could not be accessed
 

@@ -25,6 +25,12 @@ pub struct ScanOptions {
     /// `Some(N)` allows N levels of subdirectory descent; `None` is
     /// unbounded.
     pub depth: Option<usize>,
+    /// Inclusive lower bound on file size in bytes; files below it are
+    /// skipped during the walk. `None` means no lower bound.
+    pub min_size: Option<u64>,
+    /// Inclusive upper bound on file size in bytes; files above it are
+    /// skipped during the walk. `None` means no upper bound.
+    pub max_size: Option<u64>,
     pub algo: FullHashStrategy,
     /// How to order members within each duplicate group.
     pub order_by: OrderBy,
@@ -40,10 +46,19 @@ impl ScanOptions {
             one_file_system: false,
             per_path: false,
             depth: None,
+            min_size: None,
+            max_size: None,
             algo,
             order_by: OrderBy::default(),
             progress: None,
         }
+    }
+
+    /// Whether a file of `size` bytes passes the `--min-size`/`--max-size`
+    /// window (both bounds inclusive). Unset bounds never exclude.
+    #[must_use]
+    pub fn size_in_range(&self, size: u64) -> bool {
+        self.min_size.is_none_or(|min| size >= min) && self.max_size.is_none_or(|max| size <= max)
     }
 }
 
@@ -123,10 +138,14 @@ fn walk_path(
     };
 
     if meta.is_file() {
-        out.files
-            .push(entry_from_metadata(root.to_path_buf(), &meta, root_idx));
-        if let Some(p) = progress {
-            p.tick(&format!("Scanned {} file(s) so far...", out.files.len()));
+        // A file named directly on the command line is still subject to the
+        // size window — `fifi --min-size 1M small.txt` should scan nothing.
+        if opts.size_in_range(meta.size()) {
+            out.files
+                .push(entry_from_metadata(root.to_path_buf(), &meta, root_idx));
+            if let Some(p) = progress {
+                p.tick(&format!("Scanned {} file(s) so far...", out.files.len()));
+            }
         }
         return;
     }
@@ -195,6 +214,9 @@ fn walk_path(
                 continue;
             }
         };
+        if !opts.size_in_range(m.size()) {
+            continue;
+        }
         out.files.push(entry_from_metadata(
             entry.path().to_path_buf(),
             &m,

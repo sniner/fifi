@@ -38,6 +38,62 @@ impl OrderByArg {
     }
 }
 
+/// Parse a human-friendly size into bytes. A bare number is bytes; the
+/// suffixes K/M/G/T/P are powers of 1024 (binary), matching the KiB/MiB/…
+/// units fifi prints. An optional `i` and/or trailing `B` is accepted and
+/// makes no difference: `4M`, `4MB`, and `4MiB` all mean 4 × 1024². A
+/// decimal fraction is allowed (`1.5G`). Comparisons are inclusive on both
+/// ends, so `--min-size 1` excludes only empty files.
+fn parse_size(s: &str) -> Result<u64, String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Err("empty size".to_string());
+    }
+    // The numeric prefix runs up to the first byte that is neither a digit
+    // nor a decimal point; the remainder is the unit.
+    let split = s
+        .find(|c: char| !c.is_ascii_digit() && c != '.')
+        .unwrap_or(s.len());
+    let (num, unit) = s.split_at(split);
+    let mult: u64 = match unit.trim().to_ascii_lowercase().as_str() {
+        "" | "b" => 1,
+        "k" | "kb" | "kib" => 1 << 10,
+        "m" | "mb" | "mib" => 1 << 20,
+        "g" | "gb" | "gib" => 1 << 30,
+        "t" | "tb" | "tib" => 1 << 40,
+        "p" | "pb" | "pib" => 1 << 50,
+        other => {
+            return Err(format!(
+                "unknown size unit '{other}' (use B, K, M, G, T, or P)"
+            ));
+        }
+    };
+    // A bare byte count parses as an integer so large exact values survive;
+    // a fractional value (only sensible with a unit) goes through f64.
+    if mult == 1 && !num.contains('.') {
+        return num
+            .parse::<u64>()
+            .map_err(|_| format!("invalid size '{s}'"));
+    }
+    let value: f64 = num.parse().map_err(|_| format!("invalid size '{s}'"))?;
+    if value < 0.0 || !value.is_finite() {
+        return Err(format!("invalid size '{s}'"));
+    }
+    // value is finite and non-negative; saturate rather than wrap on an
+    // absurd request.
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss,
+        clippy::cast_possible_truncation
+    )]
+    let bytes = (value * mult as f64).round();
+    if bytes >= u64::MAX as f64 {
+        Ok(u64::MAX)
+    } else {
+        Ok(bytes as u64)
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(
     name = "fifi",
@@ -78,6 +134,22 @@ pub struct Cli {
     /// Omitted means unbounded.
     #[arg(long, value_name = "N")]
     pub depth: Option<usize>,
+
+    /// Ignore files smaller than SIZE
+    ///
+    /// SIZE is a byte count with an optional binary unit: `512`, `64K`,
+    /// `10M`, `1.5G` (K/M/G/T/P are powers of 1024). The bound is inclusive,
+    /// so `--min-size 1` keeps everything except empty files. Filtering
+    /// happens during the walk, so excluded files cost no hashing.
+    #[arg(long = "min-size", value_name = "SIZE", value_parser = parse_size)]
+    pub min_size: Option<u64>,
+
+    /// Ignore files larger than SIZE
+    ///
+    /// Same SIZE syntax as `--min-size`; the bound is inclusive. Combine the
+    /// two to scan a size window, e.g. `--min-size 1M --max-size 100M`.
+    #[arg(long = "max-size", value_name = "SIZE", value_parser = parse_size)]
+    pub max_size: Option<u64>,
 
     /// List unique files instead of duplicates
     ///
@@ -181,5 +253,51 @@ impl Cli {
             (false, false, true) => OutputMode::Summary,
             (false, false, false) => OutputMode::Text,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_size;
+
+    #[test]
+    fn parses_bare_bytes() {
+        assert_eq!(parse_size("0"), Ok(0));
+        assert_eq!(parse_size("512"), Ok(512));
+    }
+
+    #[test]
+    fn binary_units_are_powers_of_1024() {
+        assert_eq!(parse_size("1K"), Ok(1024));
+        assert_eq!(parse_size("1M"), Ok(1024 * 1024));
+        assert_eq!(parse_size("2G"), Ok(2 * 1024 * 1024 * 1024));
+    }
+
+    #[test]
+    fn unit_spelling_variants_are_equivalent() {
+        // bare letter, +B, and +iB all mean the binary unit.
+        assert_eq!(parse_size("4M"), parse_size("4MB"));
+        assert_eq!(parse_size("4M"), parse_size("4MiB"));
+        assert_eq!(parse_size("4M"), parse_size("4mib"));
+    }
+
+    #[test]
+    fn accepts_fractional_with_unit() {
+        assert_eq!(parse_size("1.5K"), Ok(1536));
+    }
+
+    #[test]
+    fn bare_byte_count_keeps_full_precision() {
+        // Beyond f64's exact-integer range — must not go through f64.
+        let big = (1u64 << 53) + 1;
+        assert_eq!(parse_size(&big.to_string()), Ok(big));
+    }
+
+    #[test]
+    fn rejects_garbage_and_unknown_units() {
+        assert!(parse_size("").is_err());
+        assert!(parse_size("abc").is_err());
+        assert!(parse_size("10X").is_err());
+        assert!(parse_size("1.2.3K").is_err());
     }
 }

@@ -73,6 +73,13 @@ fn init_tracing(verbose: u8, quiet: bool) {
 }
 
 fn run(cli: &Cli, mode: OutputMode) -> anyhow::Result<i32> {
+    if let (Some(min), Some(max)) = (cli.min_size, cli.max_size) {
+        anyhow::ensure!(
+            min <= max,
+            "--min-size ({min}) is greater than --max-size ({max}); no file can match"
+        );
+    }
+
     let algo = cli.algo.into_strategy();
     let algo_name = algo.name();
 
@@ -82,6 +89,8 @@ fn run(cli: &Cli, mode: OutputMode) -> anyhow::Result<i32> {
     opts.one_file_system = cli.one_file_system;
     opts.per_path = cli.per_path;
     opts.depth = cli.depth;
+    opts.min_size = cli.min_size;
+    opts.max_size = cli.max_size;
     opts.order_by = cli.order_by.into_order_by();
     if cli.verbose >= 1 {
         opts.progress = Some(Arc::new(TracingProgress::new()));
