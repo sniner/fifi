@@ -1,6 +1,5 @@
-/target
+/target/
 /AGENTS.md
 /CLAUDE.md
 /TODO.md
-/doc
-/comparison
+/sidecar/
