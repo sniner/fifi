@@ -60,6 +60,15 @@ impl SortGroupsArg {
 /// makes no difference: `4M`, `4MB`, and `4MiB` all mean 4 × 1024². A
 /// decimal fraction is allowed (`1.5G`). Comparisons are inclusive on both
 /// ends, so `--min-size 1` excludes only empty files.
+//
+// The float casts are intrinsic to accepting fractional sizes; the value is
+// bounds-checked finite and non-negative, and the result saturates at
+// u64::MAX, so the precision/sign/truncation lints don't apply.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation
+)]
 fn parse_size(s: &str) -> Result<u64, String> {
     let s = s.trim();
     if s.is_empty() {
@@ -97,11 +106,6 @@ fn parse_size(s: &str) -> Result<u64, String> {
     }
     // value is finite and non-negative; saturate rather than wrap on an
     // absurd request.
-    #[allow(
-        clippy::cast_precision_loss,
-        clippy::cast_sign_loss,
-        clippy::cast_possible_truncation
-    )]
     let bytes = (value * mult as f64).round();
     if bytes >= u64::MAX as f64 {
         Ok(u64::MAX)
