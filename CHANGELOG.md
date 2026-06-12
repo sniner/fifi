@@ -25,6 +25,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com).
   K/M/G/T/P are powers of 1024); both bounds are inclusive. Filtering happens
   during the walk, so excluded files cost no hashing. `ScanOptions` gains
   matching `min_size`/`max_size` fields
+- **`--sort-groups`** orders the duplicate groups relative to one another:
+  `path` (default, the previous behaviour) or `size`, which puts the groups
+  that free the most space (`copies × size`) first — the biggest cleanup wins
+  at the top. `--order-by` still orders the members *within* a group.
+  `ScanOptions` gains a `sort_groups` field and the library exports a new
+  `SortGroups` enum
 - **Library API**: `ScanResult` and `WalkResult` gain a `missing_roots` field
   recording scan roots that could not be accessed
 

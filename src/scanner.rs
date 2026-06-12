@@ -8,7 +8,7 @@ use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
 
 use crate::hash::FullHashStrategy;
-use crate::model::{FileEntry, OrderBy};
+use crate::model::{FileEntry, OrderBy, SortGroups};
 use crate::progress::ProgressSink;
 use crate::util::dup_sort;
 
@@ -34,6 +34,8 @@ pub struct ScanOptions {
     pub algo: FullHashStrategy,
     /// How to order members within each duplicate group.
     pub order_by: OrderBy,
+    /// How to order the duplicate groups relative to one another.
+    pub sort_groups: SortGroups,
     pub progress: Option<Arc<dyn ProgressSink>>,
 }
 
@@ -50,6 +52,7 @@ impl ScanOptions {
             max_size: None,
             algo,
             order_by: OrderBy::default(),
+            sort_groups: SortGroups::default(),
             progress: None,
         }
     }

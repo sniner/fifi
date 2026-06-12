@@ -89,7 +89,8 @@ $ fifi --order-by source --dupes-only --print0 /orig /backup | xargs -0 rm
 | `--unique` | List unique files (no content match anywhere) instead of duplicates |
 | `--per-path` | Count one entry per path; don't merge files that share storage |
 | `--algo ALGO` | Full-hash algorithm: `xxh3` (default), `sha256`, `bytewise` |
-| `--order-by ORDER` | Group ordering: `age` (default, oldest = original) or `source` (by scan-root/argument order) |
+| `--order-by ORDER` | Member ordering within a group: `age` (default, oldest = original) or `source` (by scan-root/argument order) |
+| `--sort-groups ORDER` | Group ordering: `path` (default) or `size` (most reclaimable space first) |
 | `--json` | Emit results as JSON on stdout, with statistics |
 | `--dupes-only` | Drop the original from each group; print only the redundant copies |
 | `--print0`, `-0` | Emit a flat, NUL-delimited path list (for `xargs -0`) instead of the tree |

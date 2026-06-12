@@ -92,6 +92,7 @@ fn run(cli: &Cli, mode: OutputMode) -> anyhow::Result<i32> {
     opts.min_size = cli.min_size;
     opts.max_size = cli.max_size;
     opts.order_by = cli.order_by.into_order_by();
+    opts.sort_groups = cli.sort_groups.into_sort_groups();
     if cli.verbose >= 1 {
         opts.progress = Some(Arc::new(TracingProgress::new()));
     }

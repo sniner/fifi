@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{ArgAction, Parser, ValueEnum};
 
-use fifi::{FullHashStrategy, OrderBy};
+use fifi::{FullHashStrategy, OrderBy, SortGroups};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 #[clap(rename_all = "lowercase")]
@@ -34,6 +34,22 @@ impl OrderByArg {
         match self {
             OrderByArg::Age => OrderBy::Age,
             OrderByArg::Source => OrderBy::Source,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+#[clap(rename_all = "lowercase")]
+pub enum SortGroupsArg {
+    Path,
+    Size,
+}
+
+impl SortGroupsArg {
+    pub fn into_sort_groups(self) -> SortGroups {
+        match self {
+            SortGroupsArg::Path => SortGroups::Path,
+            SortGroupsArg::Size => SortGroups::Size,
         }
     }
 }
@@ -194,6 +210,15 @@ pub struct Cli {
     /// one as the prunable duplicate.
     #[arg(long = "order-by", value_enum, default_value_t = OrderByArg::Age)]
     pub order_by: OrderByArg,
+
+    /// Order the duplicate groups relative to one another
+    ///
+    /// `path` (default) sorts groups by their first member's path. `size`
+    /// sorts by reclaimable space — `copies × size` — largest first, so the
+    /// biggest wins for a cleanup come first. This orders the groups; use
+    /// `--order-by` to order the members within a group.
+    #[arg(long = "sort-groups", value_enum, default_value_t = SortGroupsArg::Path)]
+    pub sort_groups: SortGroupsArg,
 
     /// Increase verbosity (-v info, -vv debug, -vvv trace).
     #[arg(short, long, action = ArgAction::Count)]

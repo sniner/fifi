@@ -12,7 +12,7 @@ use crate::hash::{
 use crate::model::{DuplicateGroup, FileEntry, ScanResult};
 use crate::progress::ProgressSink;
 use crate::scanner::ScanOptions;
-use crate::util::{human_size, natural_cmp, order_group};
+use crate::util::{human_size, natural_cmp, order_group, sort_duplicate_groups};
 
 const BYTEWISE_BLOCK: usize = 1 << 20;
 
@@ -336,7 +336,8 @@ pub fn run_pipeline(files: Vec<FileEntry>, opts: &ScanOptions) -> Result<ScanRes
     //   - within each duplicate group, entries are ordered by `opts.order_by`
     //     (age heuristic by default, scan-root order under `--order-by source`),
     //     kept entry first;
-    //   - groups themselves are ordered by their first entry's path;
+    //   - groups themselves are ordered by `opts.sort_groups` (first entry's
+    //     path by default, reclaimable space under `--sort-groups size`);
     //   - unique and unreadable are ordered by natural path order.
     let mut duplicates: Vec<DuplicateGroup> = full
         .multi
@@ -345,7 +346,7 @@ pub fn run_pipeline(files: Vec<FileEntry>, opts: &ScanOptions) -> Result<ScanRes
             entries: order_group(&entries, opts.order_by),
         })
         .collect();
-    duplicates.sort_by(|a, b| natural_cmp(&a.entries[0].path, &b.entries[0].path));
+    sort_duplicate_groups(&mut duplicates, opts.sort_groups);
 
     unique.sort_by(|a, b| natural_cmp(&a.path, &b.path));
     unreadable.sort_by(|a, b| natural_cmp(&a.path, &b.path));

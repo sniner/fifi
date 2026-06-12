@@ -666,6 +666,41 @@ fn print0_conflicts_with_json() {
 }
 
 #[test]
+fn sort_groups_size_puts_the_biggest_win_first() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    // "aaa" sorts first by path but frees little; "zzz" sorts last by path
+    // but frees the most. --sort-groups size must flip them.
+    let aaa = mkdir(root, "aaa");
+    mkfile(&aaa, "x", b"tiny");
+    mkfile(&aaa, "y", b"tiny");
+    let zzz = mkdir(root, "zzz");
+    let big = vec![b'x'; 4096];
+    mkfile(&zzz, "x", &big);
+    mkfile(&zzz, "y", &big);
+
+    // Default (path order): aaa's group comes first.
+    let out = fifi().arg(root).assert().code(1);
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    assert!(
+        stdout.find("/aaa/").unwrap() < stdout.find("/zzz/").unwrap(),
+        "default path order should list aaa first:\n{stdout}"
+    );
+
+    // --sort-groups size: zzz (the bigger reclaim) comes first.
+    let out = fifi()
+        .args(["--sort-groups", "size"])
+        .arg(root)
+        .assert()
+        .code(1);
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    assert!(
+        stdout.find("/zzz/").unwrap() < stdout.find("/aaa/").unwrap(),
+        "size order should list the bigger reclaim (zzz) first:\n{stdout}"
+    );
+}
+
+#[test]
 fn order_by_source_follows_argument_order() {
     let td = TempDir::new().unwrap();
     let left = mkdir(td.path(), "left");

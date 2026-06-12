@@ -11,7 +11,7 @@ pub use hash::{
     DigestHasher, DigestKey, FullHashStrategy, PARTIAL_THRESHOLD, PARTIAL_WINDOW, Sha256Hasher,
     Xxh3Hasher, hex,
 };
-pub use model::{DuplicateGroup, FileEntry, OrderBy, ScanResult};
+pub use model::{DuplicateGroup, FileEntry, OrderBy, ScanResult, SortGroups};
 pub use progress::{ProgressSink, TracingProgress};
 pub use scanner::{ScanOptions, WalkResult, dedup_hardlinks, walk_paths};
 

@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::path::Path;
 
-use crate::model::{FileEntry, OrderBy};
+use crate::model::{DuplicateGroup, FileEntry, OrderBy, SortGroups};
 
 // Display-only rounding to one decimal — the f64 precision loss clippy
 // warns about is far below what the formatting shows anyway.
@@ -69,6 +69,31 @@ pub fn natural_cmp(a: &Path, b: &Path) -> Ordering {
         }
     }
     a_chunks.len().cmp(&b_chunks.len())
+}
+
+/// Reclaimable bytes for a group: deleting every copy but one frees
+/// `(members − 1) × size`. A duplicate group always has at least two members
+/// of equal size, so the first member's size represents the whole group.
+#[must_use]
+pub fn group_reclaimable(group: &DuplicateGroup) -> u64 {
+    let size = group.entries.first().map_or(0, |e| e.size);
+    (group.entries.len().saturating_sub(1) as u64) * size
+}
+
+/// Order the duplicate groups relative to one another. `Path` (default) sorts
+/// by the first member's natural path order; `Size` sorts by reclaimable
+/// space, largest first, with path order as the deterministic tiebreaker.
+pub fn sort_duplicate_groups(groups: &mut [DuplicateGroup], how: SortGroups) {
+    match how {
+        SortGroups::Path => {
+            groups.sort_by(|a, b| natural_cmp(&a.entries[0].path, &b.entries[0].path));
+        }
+        SortGroups::Size => groups.sort_by(|a, b| {
+            group_reclaimable(b)
+                .cmp(&group_reclaimable(a))
+                .then_with(|| natural_cmp(&a.entries[0].path, &b.entries[0].path))
+        }),
+    }
 }
 
 /// Order a group's members according to `order_by`. The first element of the
@@ -222,5 +247,50 @@ mod tests {
         let sorted = source_sort(&v);
         assert_eq!(sorted[0].path, PathBuf::from("top/report.bos"));
         assert_eq!(sorted[1].path, PathBuf::from("top/2024 backup/report.bos"));
+    }
+
+    fn sized_group(path: &str, size: u64, copies: usize) -> DuplicateGroup {
+        let entries = (0..copies)
+            .map(|i| {
+                let mut e = entry(&format!("{path}/{i}"), 0.0);
+                e.size = size;
+                e
+            })
+            .collect();
+        DuplicateGroup { entries }
+    }
+
+    #[test]
+    fn group_reclaimable_is_copies_times_size() {
+        // 3 members of 100 bytes → 2 redundant copies → 200 reclaimable.
+        assert_eq!(group_reclaimable(&sized_group("g", 100, 3)), 200);
+    }
+
+    #[test]
+    fn sort_groups_by_size_orders_by_reclaimable_descending() {
+        // small: 1 copy × 1000 = 1000; big: 3 copies × 100 = 300... wait,
+        // construct so the larger total wins regardless of per-file size.
+        let small_file_many = sized_group("a", 100, 5); // 4 × 100 = 400
+        let big_file_few = sized_group("b", 1000, 2); // 1 × 1000 = 1000
+        let mut groups = vec![small_file_many, big_file_few];
+        sort_duplicate_groups(&mut groups, SortGroups::Size);
+        // The 1000-reclaimable group comes first even though it has fewer copies.
+        assert_eq!(groups[0].entries[0].size, 1000);
+        assert_eq!(groups[1].entries[0].size, 100);
+    }
+
+    #[test]
+    fn sort_groups_by_size_breaks_ties_by_path() {
+        // Equal reclaimable (both 100) → deterministic path order.
+        let mut groups = vec![sized_group("zzz", 100, 2), sized_group("aaa", 100, 2)];
+        sort_duplicate_groups(&mut groups, SortGroups::Size);
+        assert_eq!(groups[0].entries[0].path, PathBuf::from("aaa/0"));
+    }
+
+    #[test]
+    fn sort_groups_by_path_ignores_size() {
+        let mut groups = vec![sized_group("zzz", 9999, 9), sized_group("aaa", 1, 2)];
+        sort_duplicate_groups(&mut groups, SortGroups::Path);
+        assert_eq!(groups[0].entries[0].path, PathBuf::from("aaa/0"));
     }
 }

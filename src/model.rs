@@ -52,6 +52,19 @@ pub enum OrderBy {
     Source,
 }
 
+/// How to order the duplicate groups relative to one another.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortGroups {
+    /// By the first member's path (natural order). The default — stable and
+    /// easy to scan when you know roughly where a file lives.
+    #[default]
+    Path,
+    /// By reclaimable space — `(copies) × size` — largest first, so the
+    /// biggest wins for a cleanup sit at the top. Ties fall back to path
+    /// order for determinism.
+    Size,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ScanResult {
     pub unique: Vec<FileEntry>,
