@@ -42,7 +42,13 @@ fn split_by_size(files: Vec<FileEntry>) -> (Vec<FileEntry>, Vec<Vec<FileEntry>>)
     for (size, group) in by_size {
         if size == 0 {
             if group.len() > 1 {
-                tracing::info!("{} empty files are not considered identical", group.len());
+                // warn, not info: this is the one place fifi deliberately
+                // deviates from "same content = duplicate", and users coming
+                // from tools that group empty files should see why without -v.
+                tracing::warn!(
+                    "{} empty files are not considered identical (empty files are always unique)",
+                    group.len()
+                );
             }
             unique.extend(group);
         } else if group.len() == 1 {

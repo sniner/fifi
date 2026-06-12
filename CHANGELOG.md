@@ -28,6 +28,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com).
   freed by deleting every redundant copy, e.g.
   `12 duplicates across 5 groups (1.2 GiB reclaimable)`. Previously this
   number was only available in the JSON statistics (`duplicate_bytes`)
+- **Empty files**: the note that multiple empty files are never considered
+  identical is now a warning, visible at default verbosity (it used to require
+  `-v`); `--unique`'s help also documents the rule
 
 ## [0.6.0] — 2026-06-10
 
