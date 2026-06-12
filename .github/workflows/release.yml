@@ -18,7 +18,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Compare git tag with [package].version
         run: |
           tag="${GITHUB_REF_NAME#v}"
@@ -60,7 +60,7 @@ jobs:
             apt_packages: musl-tools
             asset_suffix: aarch64-linux-musl
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -103,7 +103,7 @@ jobs:
              "dist/fifi-${GITHUB_REF_NAME}-${{ matrix.asset_suffix }}"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fifi-${{ matrix.asset_suffix }}
           path: dist/fifi-*
@@ -118,14 +118,14 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # Need the tagged commit's full message for release notes;
           # default shallow clone strips the body.
           fetch-depth: 0
 
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
