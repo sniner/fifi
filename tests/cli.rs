@@ -156,6 +156,20 @@ fn unique_text_lists_only_uniques_not_the_tree() {
 }
 
 #[test]
+fn unique_exit_code_follows_the_subject() {
+    // Every file's content is duplicated → no unique files. Under --unique
+    // that is a clean result (exit 0), even though duplicates exist (which
+    // is exit 1 without the flag).
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    mkfile(root, "a", b"shared");
+    mkfile(root, "b", b"shared");
+
+    fifi().arg("--unique").arg(root).assert().code(0);
+    fifi().arg(root).assert().code(1);
+}
+
+#[test]
 fn unique_conflicts_with_dupes_only() {
     let td = TempDir::new().unwrap();
     let root = td.path();

@@ -85,7 +85,8 @@ pub struct Cli {
     /// fifi lists the files whose content has no match anywhere across the
     /// scanned paths. Works with the text, `-0`/`--print0`, and `--json`
     /// formats. Mutually exclusive with `--dupes-only`, which selects the
-    /// opposite (the redundant copies).
+    /// opposite (the redundant copies). The exit code follows the listing:
+    /// 1 when unique files were found, 0 when there are none.
     #[arg(long, conflicts_with_all = ["dupes_only", "summary"])]
     pub unique: bool,
 

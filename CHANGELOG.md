@@ -12,6 +12,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com).
   duplicates" with exit 0. All reachable paths are still scanned and rendered;
   under `--json` the document gains a `missing_paths` array listing the
   affected paths
+- **`--unique`** now drives the exit code: `1` means unique files were found,
+  `0` means none. Previously the exit code always reported whether duplicates
+  existed, regardless of what was listed — scripts checking `fifi --unique`'s
+  exit code against the duplicate count must drop the flag for that question
 
 ### Added
 

@@ -106,6 +106,10 @@ This lets you write `fifi -q /backup || echo "duplicates found"` without parsing
 output, the same way linters like `clippy` or `shellcheck` signal "something to
 look at".
 
+The "findings" the exit code reports follow the listing's subject: under
+`--unique`, exit `1` means unique files were found (e.g. files missing from a
+backup), `0` means every file's content exists elsewhere.
+
 ## How it works
 
 Three phases:

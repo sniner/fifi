@@ -16,8 +16,11 @@ use cli::render::{
 
 use fifi::{ScanOptions, TracingProgress, scan};
 
-const EXIT_NO_DUPS: i32 = 0;
-const EXIT_DUPS_FOUND: i32 = 1;
+// Linter-style convention: 0 = nothing to act on, 1 = findings, 2 = error.
+// What counts as a finding follows the listing's subject — duplicate groups
+// by default, unique files under --unique.
+const EXIT_CLEAN: i32 = 0;
+const EXIT_FOUND: i32 = 1;
 const EXIT_ERROR: i32 = 2;
 
 fn main() {
@@ -154,9 +157,10 @@ fn run(cli: &Cli, mode: OutputMode) -> anyhow::Result<i32> {
         return Ok(EXIT_ERROR);
     }
 
-    Ok(if result.has_duplicates() {
-        EXIT_DUPS_FOUND
+    let found = if cli.unique {
+        !result.unique.is_empty()
     } else {
-        EXIT_NO_DUPS
-    })
+        result.has_duplicates()
+    };
+    Ok(if found { EXIT_FOUND } else { EXIT_CLEAN })
 }
