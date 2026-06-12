@@ -219,8 +219,13 @@ pub fn emit_json<W: Write>(
     Ok(())
 }
 
+/// Emit a run-aborting error as a JSON document on stdout — the channel a
+/// `--json` consumer is parsing — so the explanation arrives in-band
+/// alongside the exit code 2. Plain-text errors (all other modes) go to
+/// stderr in `main` instead.
 pub fn emit_json_error(message: &str) {
     let payload = serde_json::json!({ "error": message });
-    let _ = serde_json::to_writer_pretty(io::stderr().lock(), &payload);
-    let _ = writeln!(io::stderr().lock());
+    let mut out = io::stdout().lock();
+    let _ = serde_json::to_writer_pretty(&mut out, &payload);
+    let _ = writeln!(out);
 }

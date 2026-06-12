@@ -34,7 +34,7 @@ fn main() {
         Ok(code) => process::exit(code),
         Err(e) => {
             match mode {
-                OutputMode::Json => emit_json_error(&format!("{e:#}")),
+                OutputMode::Json | OutputMode::SummaryJson => emit_json_error(&format!("{e:#}")),
                 _ => eprintln!("error: {e:#}"),
             }
             process::exit(EXIT_ERROR);

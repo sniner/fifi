@@ -32,6 +32,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com).
   identical is now a warning, visible at default verbosity (it used to require
   `-v`); `--unique`'s help also documents the rule
 
+### Fixed
+
+- **`--json`**: a run-aborting error now emits its `{"error": …}` document on
+  stdout — the channel a JSON consumer parses — instead of stderr, and
+  `--summary --json` gets the JSON error document too (it used to fall back to
+  plain text)
+
 ## [0.6.0] — 2026-06-10
 
 ### Breaking changes
