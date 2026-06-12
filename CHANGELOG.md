@@ -46,6 +46,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com).
 
 ### Fixed
 
+- **`--summary --unique`** is no longer rejected as a conflict. `--summary` is
+  subject-independent (it reports duplicate statistics regardless), so the
+  combination is now accepted and simply ignores `--unique` for both its output
+  and its exit code
 - **`--json`**: a run-aborting error now emits its `{"error": …}` document on
   stdout — the channel a JSON consumer parses — instead of stderr, and
   `--summary --json` gets the JSON error document too (it used to fall back to

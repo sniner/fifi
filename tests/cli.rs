@@ -274,6 +274,27 @@ fn summary_with_json_emits_only_statistics_block() {
 }
 
 #[test]
+fn summary_with_unique_is_accepted_and_ignores_the_flag() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    // Everything is duplicated → no unique files, but duplicates exist.
+    mkfile(root, "a", b"shared");
+    mkfile(root, "b", b"shared");
+
+    // --summary is subject-independent: combining it with --unique must not
+    // error, must still print the duplicate summary, and the exit code
+    // reflects duplicates (1) rather than the empty unique listing (0).
+    let out = fifi()
+        .args(["--summary", "--unique"])
+        .arg(root)
+        .assert()
+        .code(1);
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    assert!(stdout.contains("SUMMARY:"), "summary expected:\n{stdout}");
+    assert!(stdout.contains("1 duplicate"), "stats expected:\n{stdout}");
+}
+
+#[test]
 fn summary_conflicts_with_dupes_only() {
     let td = TempDir::new().unwrap();
     let root = td.path();

@@ -167,7 +167,12 @@ fn run(cli: &Cli, mode: OutputMode) -> anyhow::Result<i32> {
         return Ok(EXIT_ERROR);
     }
 
-    let found = if cli.unique {
+    // The exit code follows whatever the run *lists*: unique files under
+    // `--unique`, duplicate groups otherwise. The summary modes are
+    // subject-independent (they report duplicate stats either way), so
+    // `--unique` is inert there and the code reflects duplicates.
+    let lists_unique = cli.unique && !matches!(mode, OutputMode::Summary | OutputMode::SummaryJson);
+    let found = if lists_unique {
         !result.unique.is_empty()
     } else {
         result.has_duplicates()

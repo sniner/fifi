@@ -176,8 +176,9 @@ pub struct Cli {
     /// opposite (the redundant copies). Empty files are always listed as
     /// unique — they are never considered identical to each other. The exit
     /// code follows the listing: 1 when unique files were found, 0 when
-    /// there are none.
-    #[arg(long, conflicts_with_all = ["dupes_only", "summary"])]
+    /// there are none. `--summary` is subject-independent, so combining it
+    /// with `--unique` simply ignores the flag (output and exit code alike).
+    #[arg(long, conflicts_with = "dupes_only")]
     pub unique: bool,
 
     /// Count one entry per path; don't merge hardlink families
