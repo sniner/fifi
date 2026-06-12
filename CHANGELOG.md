@@ -33,6 +33,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com).
   `SortGroups` enum
 - **Library API**: `ScanResult` and `WalkResult` gain a `missing_roots` field
   recording scan roots that could not be accessed
+- **Library API**: `util::natural_key` returns a precomputed `NaturalKey` for
+  `sort_by_cached_key`, so result sorting no longer re-parses paths on every
+  comparison (`natural_cmp` is unchanged and now built on it)
 
 ### Changed
 

@@ -12,7 +12,7 @@ use crate::hash::{
 use crate::model::{DuplicateGroup, FileEntry, ScanResult};
 use crate::progress::ProgressSink;
 use crate::scanner::ScanOptions;
-use crate::util::{human_size, natural_cmp, order_group, sort_duplicate_groups};
+use crate::util::{human_size, natural_key, order_group, sort_duplicate_groups};
 
 const BYTEWISE_BLOCK: usize = 1 << 20;
 
@@ -348,8 +348,8 @@ pub fn run_pipeline(files: Vec<FileEntry>, opts: &ScanOptions) -> Result<ScanRes
         .collect();
     sort_duplicate_groups(&mut duplicates, opts.sort_groups);
 
-    unique.sort_by(|a, b| natural_cmp(&a.path, &b.path));
-    unreadable.sort_by(|a, b| natural_cmp(&a.path, &b.path));
+    unique.sort_by_cached_key(|e| natural_key(&e.path));
+    unreadable.sort_by_cached_key(|e| natural_key(&e.path));
 
     Ok(ScanResult {
         unique,

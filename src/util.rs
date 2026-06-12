@@ -18,15 +18,32 @@ pub fn human_size(n: u64) -> String {
     format!("{x:.1} PiB")
 }
 
-#[derive(Debug, PartialEq, Eq)]
-enum Chunk<'a> {
+// A single chunk of a natural-order key. The derived `Ord` does the work:
+// variant order makes every `Num` sort before every `Text` at the same
+// position (matching Python's `_natural_key` mixed-type tuple), `Num` compares
+// numerically, and `Text` compares its already-lowercased string. Saturating
+// `Num` parsing keeps absurdly long digit runs orderable.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum NaturalChunk {
     Num(u64),
-    Text(&'a str),
+    Text(String),
 }
 
-fn natural_chunks(s: &str) -> Vec<Chunk<'_>> {
-    let mut out = Vec::new();
+/// A precomputed natural-order sort key for a path. Its `Ord` compares the
+/// chunk vectors lexicographically (with the shorter one sorting first on a
+/// tie), so it reproduces [`natural_cmp`] exactly — but the splitting and
+/// lowercasing happen once per element instead of on every comparison, which
+/// is what makes it suitable for [`slice::sort_by_cached_key`].
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct NaturalKey(Vec<NaturalChunk>);
+
+/// Build the [`NaturalKey`] for a path: split into digit / non-digit runs,
+/// parsing digit runs as numbers and lowercasing text runs.
+#[must_use]
+pub fn natural_key(p: &Path) -> NaturalKey {
+    let s = p.to_string_lossy();
     let bytes = s.as_bytes();
+    let mut out = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i].is_ascii_digit() {
@@ -34,41 +51,26 @@ fn natural_chunks(s: &str) -> Vec<Chunk<'_>> {
             while i < bytes.len() && bytes[i].is_ascii_digit() {
                 i += 1;
             }
-            // Saturate on overflow so absurdly long digit runs still order sensibly.
             let n: u64 = s[start..i].parse().unwrap_or(u64::MAX);
-            out.push(Chunk::Num(n));
+            out.push(NaturalChunk::Num(n));
         } else {
             let start = i;
             while i < bytes.len() && !bytes[i].is_ascii_digit() {
                 i += 1;
             }
-            out.push(Chunk::Text(&s[start..i]));
+            out.push(NaturalChunk::Text(s[start..i].to_lowercase()));
         }
     }
-    out
+    NaturalKey(out)
 }
 
+/// Compare two paths in natural order. Built on [`natural_key`] so the
+/// ordering is identical to the cached-key sorts; prefer `natural_key` +
+/// `sort_by_cached_key` when sorting a slice, since this allocates a key for
+/// each side on every call.
 #[must_use]
 pub fn natural_cmp(a: &Path, b: &Path) -> Ordering {
-    let a_str = a.to_string_lossy();
-    let b_str = b.to_string_lossy();
-    let a_chunks = natural_chunks(&a_str);
-    let b_chunks = natural_chunks(&b_str);
-    for (x, y) in a_chunks.iter().zip(b_chunks.iter()) {
-        let ord = match (x, y) {
-            (Chunk::Num(p), Chunk::Num(q)) => p.cmp(q),
-            (Chunk::Text(p), Chunk::Text(q)) => p.to_lowercase().cmp(&q.to_lowercase()),
-            // Numeric chunks sort before text chunks at the same position;
-            // Python's _natural_key has the same implicit ordering via the
-            // mixed-type key tuple.
-            (Chunk::Num(_), Chunk::Text(_)) => Ordering::Less,
-            (Chunk::Text(_), Chunk::Num(_)) => Ordering::Greater,
-        };
-        if ord != Ordering::Equal {
-            return ord;
-        }
-    }
-    a_chunks.len().cmp(&b_chunks.len())
+    natural_key(a).cmp(&natural_key(b))
 }
 
 /// Reclaimable bytes for a group: deleting every copy but one frees
@@ -86,12 +88,15 @@ pub fn group_reclaimable(group: &DuplicateGroup) -> u64 {
 pub fn sort_duplicate_groups(groups: &mut [DuplicateGroup], how: SortGroups) {
     match how {
         SortGroups::Path => {
-            groups.sort_by(|a, b| natural_cmp(&a.entries[0].path, &b.entries[0].path));
+            groups.sort_by_cached_key(|g| natural_key(&g.entries[0].path));
         }
-        SortGroups::Size => groups.sort_by(|a, b| {
-            group_reclaimable(b)
-                .cmp(&group_reclaimable(a))
-                .then_with(|| natural_cmp(&a.entries[0].path, &b.entries[0].path))
+        // `Reverse` on the reclaimable count gives largest-first; the natural
+        // key breaks ties deterministically. One key built per group.
+        SortGroups::Size => groups.sort_by_cached_key(|g| {
+            (
+                std::cmp::Reverse(group_reclaimable(g)),
+                natural_key(&g.entries[0].path),
+            )
         }),
     }
 }
