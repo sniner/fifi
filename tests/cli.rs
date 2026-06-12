@@ -291,6 +291,37 @@ fn summary_alone_goes_to_stdout() {
 }
 
 #[test]
+fn summary_reports_reclaimable_bytes() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    // One 6-byte copy is redundant → 6.0 B reclaimable.
+    mkfile(root, "a", b"shared");
+    mkfile(root, "b", b"shared");
+
+    let out = fifi().arg("--summary").arg(root).assert().code(1);
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    assert!(
+        stdout.contains("(6.0 B reclaimable)"),
+        "summary must name the reclaimable bytes:\n{stdout}"
+    );
+}
+
+#[test]
+fn summary_omits_reclaimable_when_no_duplicates() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    mkfile(root, "a", b"unique-a");
+    mkfile(root, "b", b"unique-b");
+
+    let out = fifi().arg("--summary").arg(root).assert().code(0);
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    assert!(
+        !stdout.contains("reclaimable"),
+        "nothing to reclaim, nothing to report:\n{stdout}"
+    );
+}
+
+#[test]
 fn json_stats_count_storage_units_not_paths_in_default_mode() {
     // a.txt + a-link.txt (hardlink, same inode) + copy.txt (separate inode,
     // identical content). Default mode collapses the hardlink family into

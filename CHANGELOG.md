@@ -18,6 +18,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com).
 - **Library API**: `ScanResult` and `WalkResult` gain a `missing_roots` field
   recording scan roots that could not be accessed
 
+### Changed
+
+- **Summary line** (`--summary` and the `-v` epilogue) now reports the space
+  freed by deleting every redundant copy, e.g.
+  `12 duplicates across 5 groups (1.2 GiB reclaimable)`. Previously this
+  number was only available in the JSON statistics (`duplicate_bytes`)
+
 ## [0.6.0] — 2026-06-10
 
 ### Breaking changes

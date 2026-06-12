@@ -1,5 +1,6 @@
 use std::io::{self, Write};
 
+use fifi::util::human_size;
 use fifi::{FileEntry, ScanResult};
 
 // Unique block: standalone files keep a flat layout, aliases marked with `=`.
@@ -179,6 +180,9 @@ pub struct SummaryStats {
     pub total_files: usize,
     pub copies: usize,
     pub groups: usize,
+    /// Bytes freed by deleting every redundant copy — the answer to "how
+    /// much space do I get back?".
+    pub duplicate_bytes: u64,
     pub unreadable: usize,
     pub skipped_dirs: usize,
     pub elapsed_seconds: f64,
@@ -206,6 +210,12 @@ pub fn summary_line(stats: &SummaryStats) -> String {
             plural(stats.groups, "group", "groups")
         ),
     ];
+    if stats.duplicate_bytes > 0 {
+        parts.push(format!(
+            "({} reclaimable)",
+            human_size(stats.duplicate_bytes)
+        ));
+    }
     if stats.unreadable > 0 {
         parts.push(format!("({} unreadable)", stats.unreadable));
     }
@@ -227,10 +237,19 @@ pub fn collect_summary(result: &ScanResult, elapsed: f64) -> SummaryStats {
     let unique_files = result.unique.len();
     let dup_files: usize = result.duplicates.iter().map(|g| g.entries.len()).sum();
     let unreadable = result.unreadable.len();
+    let duplicate_bytes: u64 = result
+        .duplicates
+        .iter()
+        .map(|g| {
+            let size = g.entries.first().map_or(0, |e| e.size);
+            (g.entries.len().saturating_sub(1) as u64) * size
+        })
+        .sum();
     SummaryStats {
         total_files: unique_files + dup_files + unreadable,
         copies: dup_files - result.duplicates.len(),
         groups: result.duplicates.len(),
+        duplicate_bytes,
         unreadable,
         skipped_dirs: result.skipped_dirs,
         elapsed_seconds: elapsed,
