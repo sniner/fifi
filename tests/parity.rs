@@ -112,14 +112,18 @@ fn symlinks_followed_when_requested() {
 }
 
 #[test]
-fn missing_path_silently_skipped() {
+fn missing_path_recorded_but_scan_continues() {
+    // The library stays tolerant: a missing root doesn't abort the scan,
+    // it is recorded in `missing_roots` so callers (like the CLI, which
+    // turns it into exit 2) can decide what to do.
     let td = TempDir::new().unwrap();
     let root = td.path();
     mkfile(root, "real.txt", b"hello");
     let missing = root.join("does-not-exist");
 
-    let r = fifi::scan(&[root.to_path_buf(), missing], &default_opts()).unwrap();
+    let r = fifi::scan(&[root.to_path_buf(), missing.clone()], &default_opts()).unwrap();
     assert_eq!(r.unique.len(), 1);
+    assert_eq!(r.missing_roots, vec![missing]);
 }
 
 #[test]

@@ -28,7 +28,7 @@ fn main() {
     init_tracing(cli.verbose, cli.quiet);
 
     match run(&cli, mode) {
-        Ok(found) => process::exit(if found { EXIT_DUPS_FOUND } else { EXIT_NO_DUPS }),
+        Ok(code) => process::exit(code),
         Err(e) => {
             match mode {
                 OutputMode::Json => emit_json_error(&format!("{e:#}")),
@@ -69,7 +69,7 @@ fn init_tracing(verbose: u8, quiet: bool) {
         .try_init();
 }
 
-fn run(cli: &Cli, mode: OutputMode) -> anyhow::Result<bool> {
+fn run(cli: &Cli, mode: OutputMode) -> anyhow::Result<i32> {
     let algo = cli.algo.into_strategy();
     let algo_name = algo.name();
 
@@ -140,5 +140,23 @@ fn run(cli: &Cli, mode: OutputMode) -> anyhow::Result<bool> {
         }
     }
 
-    Ok(result.has_duplicates())
+    // A scan root the user named but we couldn't access means the results
+    // above cover less than was asked for — that's an error, not a clean
+    // "no duplicates". The results are still rendered (everything reachable
+    // was scanned); only the exit code and stderr carry the failure.
+    if !result.missing_roots.is_empty() {
+        for root in &result.missing_roots {
+            eprintln!(
+                "error: cannot scan '{}': path is missing or not accessible",
+                root.display()
+            );
+        }
+        return Ok(EXIT_ERROR);
+    }
+
+    Ok(if result.has_duplicates() {
+        EXIT_DUPS_FOUND
+    } else {
+        EXIT_NO_DUPS
+    })
 }

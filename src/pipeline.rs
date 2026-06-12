@@ -349,6 +349,7 @@ pub fn run_pipeline(files: Vec<FileEntry>, opts: &ScanOptions) -> Result<ScanRes
         duplicates,
         unreadable,
         skipped_dirs: 0,
+        missing_roots: Vec::new(),
     })
 }
 

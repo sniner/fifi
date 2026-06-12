@@ -97,6 +97,10 @@ fn is_hidden_name(name: &str) -> bool {
 pub struct WalkResult {
     pub files: Vec<FileEntry>,
     pub skipped_dirs: usize,
+    /// Roots that could not be accessed at all (missing or
+    /// permission-denied). The walk is tolerant — recording instead of
+    /// failing — so callers decide whether this is an error.
+    pub missing_roots: Vec<PathBuf>,
 }
 
 fn walk_path(
@@ -113,6 +117,7 @@ fn walk_path(
         Ok(m) => m,
         Err(e) => {
             tracing::info!("'{}' not found: {}", root.display(), e);
+            out.missing_roots.push(root.to_path_buf());
             return;
         }
     };
@@ -205,6 +210,7 @@ pub fn walk_paths(roots: &[PathBuf], opts: &ScanOptions) -> WalkResult {
     let mut out = WalkResult {
         files: Vec::new(),
         skipped_dirs: 0,
+        missing_roots: Vec::new(),
     };
     let progress = opts.progress.as_deref();
 

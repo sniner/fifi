@@ -54,6 +54,10 @@ struct JsonResult<'a> {
     unique: Option<Vec<JsonFileFull<'a>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     unreadable: Option<Vec<JsonFileFull<'a>>>,
+    /// Scan roots that could not be accessed at all. Present only on
+    /// failure (the process exits 2 when this is non-empty).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    missing_paths: Vec<&'a Path>,
     statistics: JsonStats,
 }
 
@@ -202,6 +206,11 @@ pub fn emit_json<W: Write>(
         duplicates: dup_groups,
         unique: unique_block,
         unreadable: unreadable_block,
+        missing_paths: result
+            .missing_roots
+            .iter()
+            .map(std::path::PathBuf::as_path)
+            .collect(),
         statistics: build_stats(result, snapshot),
     };
 

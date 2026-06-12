@@ -2,6 +2,22 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com).
 
+## [Unreleased]
+
+### Breaking changes
+
+- **Missing scan paths** are now errors: a path named on the command line that
+  does not exist (or cannot be accessed) prints an error to stderr and the run
+  exits with code 2, instead of being skipped silently and reporting "no
+  duplicates" with exit 0. All reachable paths are still scanned and rendered;
+  under `--json` the document gains a `missing_paths` array listing the
+  affected paths
+
+### Added
+
+- **Library API**: `ScanResult` and `WalkResult` gain a `missing_roots` field
+  recording scan roots that could not be accessed
+
 ## [0.6.0] — 2026-06-10
 
 ### Breaking changes

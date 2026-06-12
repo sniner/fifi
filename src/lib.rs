@@ -35,5 +35,6 @@ pub fn scan(paths: &[PathBuf], opts: &ScanOptions) -> Result<ScanResult> {
     };
     let mut result = pipeline::run_pipeline(entries, opts)?;
     result.skipped_dirs = walk.skipped_dirs;
+    result.missing_roots = walk.missing_roots;
     Ok(result)
 }

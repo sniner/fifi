@@ -99,7 +99,8 @@ $ fifi --order-by source --dupes-only --print0 /orig /backup | xargs -0 rm
 
 - `0` — no duplicates (the scan ran cleanly and there is nothing to act on)
 - `1` — duplicates were found
-- `2` — an error occurred
+- `2` — an error occurred, including a scan path that does not exist or
+  cannot be accessed (reachable paths are still scanned and rendered)
 
 This lets you write `fifi -q /backup || echo "duplicates found"` without parsing
 output, the same way linters like `clippy` or `shellcheck` signal "something to

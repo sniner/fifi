@@ -587,15 +587,61 @@ fn order_by_source_follows_argument_order() {
 }
 
 #[test]
-fn missing_path_is_silently_skipped_via_cli() {
+fn missing_path_is_an_error() {
     let td = TempDir::new().unwrap();
     let root = td.path();
     mkfile(root, "real", b"hello");
 
+    // A mistyped path must not masquerade as "scan ok, no duplicates".
     fifi()
         .arg(root)
         .arg(root.join("nonexistent"))
         .assert()
-        .success()
-        .code(0);
+        .code(2)
+        .stderr(predicate::str::contains("nonexistent"));
+}
+
+#[test]
+fn missing_path_still_renders_reachable_results() {
+    // The reachable root is scanned and rendered; only the exit code and
+    // stderr carry the failure.
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    let a = mkdir(root, "a");
+    let b = mkdir(root, "b");
+    mkfile(&a, "x.txt", b"shared");
+    mkfile(&b, "x.txt", b"shared");
+
+    let out = fifi()
+        .arg(root)
+        .arg(root.join("nonexistent"))
+        .assert()
+        .code(2);
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    assert!(
+        stdout.contains("x.txt"),
+        "duplicates from the reachable root must still be listed:\n{stdout}"
+    );
+}
+
+#[test]
+fn missing_path_appears_in_json_document() {
+    let td = TempDir::new().unwrap();
+    let root = td.path();
+    mkfile(root, "real", b"hello");
+    let missing = root.join("nonexistent");
+
+    let out = fifi()
+        .arg("--json")
+        .arg(root)
+        .arg(&missing)
+        .assert()
+        .code(2);
+    let json: serde_json::Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
+    let paths = json.get("missing_paths").unwrap().as_array().unwrap();
+    assert_eq!(paths.len(), 1);
+    assert_eq!(
+        paths[0].as_str().unwrap(),
+        missing.display().to_string().as_str()
+    );
 }

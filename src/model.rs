@@ -61,6 +61,11 @@ pub struct ScanResult {
     /// Number of directories the walk could not enter (permission errors
     /// and the like). Non-zero means the scan was incomplete.
     pub skipped_dirs: usize,
+
+    /// Scan roots (path arguments) that could not be accessed at all —
+    /// missing or permission-denied. Non-empty means the scan covered less
+    /// than the caller asked for.
+    pub missing_roots: Vec<PathBuf>,
 }
 
 impl ScanResult {
