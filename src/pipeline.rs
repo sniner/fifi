@@ -9,12 +9,12 @@ use crate::error::{Result, ScanError};
 use crate::hash::{
     DigestHasher, DigestKey, FullHashStrategy, PARTIAL_THRESHOLD, hex, partial_xxh3,
 };
-
-const BYTEWISE_BLOCK: usize = 1 << 20;
 use crate::model::{DuplicateGroup, FileEntry, ScanResult};
 use crate::progress::ProgressSink;
 use crate::scanner::ScanOptions;
 use crate::util::{human_size, natural_cmp, order_group};
+
+const BYTEWISE_BLOCK: usize = 1 << 20;
 
 struct BucketedGroup {
     multi: Vec<Vec<FileEntry>>,
