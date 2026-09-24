@@ -175,6 +175,12 @@ as a standalone file.
 
 ## Installation
 
+### With Homebrew (macOS)
+
+```
+brew install sniner/tap/fifi
+```
+
 ### From crates.io
 
 ```
@@ -189,7 +195,10 @@ cargo install --path .
 
 ### Pre-built binary
 
-Download from the [releases page](https://github.com/sniner/fifi/releases).
+Download from the [releases page](https://github.com/sniner/fifi/releases):
+
+- `fifi-vX.Y.Z-x86_64-linux-musl` / `-aarch64-linux-musl`: Linux, statically linked
+- `fifi-vX.Y.Z-macos-universal`: macOS on Apple Silicon and Intel
 
 ## Requirements
 

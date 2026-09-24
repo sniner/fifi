@@ -2,6 +2,13 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com).
 
+## [Unreleased]
+
+### Added
+
+- **macOS binary**: a release now includes a universal binary for Apple Silicon and Intel
+  Macs, which Homebrew installs with `brew install sniner/tap/fifi`
+
 ## [0.7.0] — 2026-06-12
 
 ### Breaking changes
