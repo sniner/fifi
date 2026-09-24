@@ -10,15 +10,14 @@ env:
 
 jobs:
   verify-version:
-    # Tag-pushes only: refuse to build a release whose git tag does not
-    # match `[package].version` in Cargo.toml. Catches the common "tagged
-    # v0.2.0 but forgot to bump Cargo.toml" mistake before any build
-    # minutes are spent.
+    # Tag-pushes only: refuse to build a release whose git tag does not match
+    # `[package].version` in Cargo.toml. Catches the common "tagged v0.2.0 but
+    # forgot to bump Cargo.toml" mistake before any build minutes are spent.
     name: Verify tag matches Cargo.toml version
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Compare git tag with [package].version
         run: |
           tag="${GITHUB_REF_NAME#v}"
@@ -43,8 +42,8 @@ jobs:
   build:
     name: Build ${{ matrix.target }}
     needs: verify-version
-    # Run when the gate passed, or when it was skipped (workflow_dispatch
-    # with no tag — useful as a manual smoke build).
+    # Run when the gate passed, or when it was skipped (workflow_dispatch with no
+    # tag — useful as a manual smoke build).
     if: ${{ always() && (needs.verify-version.result == 'success' || needs.verify-version.result == 'skipped') }}
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -60,7 +59,7 @@ jobs:
             apt_packages: musl-tools
             asset_suffix: aarch64-linux-musl
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -85,8 +84,8 @@ jobs:
         run: |
           BIN=target/${{ matrix.target }}/release/fifi
           file "$BIN"
-          # file(1) reports musl binaries as "statically linked" (classic)
-          # or "static-pie linked" (modern PIE). Accept both.
+          # file(1) reports musl binaries as "statically linked" (classic) or
+          # "static-pie linked" (modern PIE). Accept both.
           if ! file "$BIN" | grep -qE "static(ally|-pie)? linked"; then
             echo "ERROR: fifi is not statically linked"
             exit 1
@@ -110,19 +109,71 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  build-macos:
+    # Universal binary: both Apple targets built on one arm64 runner, merged
+    # with lipo. Kept out of the Linux matrix — the steps (two targets, lipo,
+    # no static-linkage check) share almost nothing with the musl builds.
+    name: Build macOS universal
+    needs: verify-version
+    if: ${{ always() && (needs.verify-version.result == 'success' || needs.verify-version.result == 'skipped') }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-universal
+
+      - name: Build fifi (both architectures)
+        run: |
+          cargo build --release --locked --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
+
+      - name: Merge into a universal binary
+        run: |
+          mkdir -p dist
+          lipo -create \
+            target/aarch64-apple-darwin/release/fifi \
+            target/x86_64-apple-darwin/release/fifi \
+            -output "dist/fifi-${GITHUB_REF_NAME}-macos-universal"
+          strip "dist/fifi-${GITHUB_REF_NAME}-macos-universal"
+
+      - name: Verify universal binary
+        run: |
+          BIN="dist/fifi-${GITHUB_REF_NAME}-macos-universal"
+          lipo -archs "$BIN"
+          for arch in x86_64 arm64; do
+            if ! lipo -archs "$BIN" | grep -qw "$arch"; then
+              echo "ERROR: $arch slice missing from universal binary"
+              exit 1
+            fi
+          done
+          # Smoke test: the arm64 slice runs on this runner.
+          "$BIN" --version
+          echo "OK: $(du -h "$BIN" | cut -f1) universal binary"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: fifi-macos-universal
+          path: dist/fifi-*
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     name: Publish release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build]
+    needs: [build, build-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
-        with:
-          # Need the tagged commit's full message for release notes;
-          # default shallow clone strips the body.
-          fetch-depth: 0
+      - uses: actions/checkout@v7
 
       - name: Download all build artifacts
         uses: actions/download-artifact@v8
@@ -133,14 +184,27 @@ jobs:
       - name: List assets
         run: ls -la dist/
 
+      - name: Extract release notes from CHANGELOG.md
+        # Release notes = the CHANGELOG section for this version. Single source of
+        # truth: the curated changelog, not a separate release-commit body.
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v ver="$version" '
+              $0 ~ "^## \\[" ver "\\]" { grab=1; next }
+              grab && /^## \[/          { exit }
+              grab                      { print }
+          ' CHANGELOG.md | sed -e '/./,$!d' > release-notes.md
+          if [ ! -s release-notes.md ]; then
+              echo "::error::No CHANGELOG.md section found for [$version] — add one before tagging."
+              exit 1
+          fi
+          echo "----- release notes -----"
+          cat release-notes.md
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Release notes = body of the tagged release-prep commit,
-          # minus the Co-Authored-By trailer.
-          git log -1 --pretty=%b "$GITHUB_REF_NAME" \
-            | sed '/^Co-Authored-By:/d' > release-notes.md
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
             --notes-file release-notes.md \
